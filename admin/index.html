@@ -62,7 +62,7 @@
           <select id="leadMode">
             <option value="soft">soft</option>
             <option value="balanced" selected>balanced</option>
-            <option value="aggressive">aggressive</option>
+            <option value="hard">hard</option>
           </select>
         </div>
       </div>
@@ -70,11 +70,23 @@
       <label>Greeting</label>
       <textarea id="greeting" placeholder="Hi — I can help with..."></textarea>
 
-      <label>Capabilities (one per line)</label>
-      <textarea id="capabilities"></textarea>
+      <label>Knowledge (paste curated FAQ/policies)</label>
+      <textarea id="knowledge" placeholder="Key facts, offerings, constraints, pricing ranges, locations, handoff paths... (keep concise)"></textarea>
 
-      <label>Do-not-claim (one per line)</label>
-      <textarea id="doNotClaim"></textarea>
+      <label>Knowledge URLs (static pages; one per line)</label>
+      <textarea id="knowledgeUrls" placeholder="https://digitalsafegrid.com.au/services&#10;https://digitalsafegrid.com.au/faq"></textarea>
+
+      <div class="row" style="margin-top:12px;">
+        <label style="display:flex; align-items:center; gap:10px;">
+          <input id="ragEnabled" type="checkbox" />
+          Enable URL retrieval (cached)
+        </label>
+        <div class="grow"></div>
+        <div>
+          <label>Max URLs / request</label>
+          <input id="ragMaxUrlsPerRequest" placeholder="2" />
+        </div>
+      </div>
 
       <label>Qualifying questions (one per line)</label>
       <textarea id="qualifyingQuestions"></textarea>
@@ -138,8 +150,10 @@ async function save(){
     brandHex: val("brandHex") || undefined,
     leadMode: val("leadMode") || "balanced",
     greeting: val("greeting"),
-    capabilities: lines("capabilities"),
-    doNotClaim: lines("doNotClaim"),
+    knowledge: val("knowledge") || undefined,
+    knowledgeUrls: lines("knowledgeUrls"),
+    ragEnabled: document.getElementById("ragEnabled").checked,
+    ragMaxUrlsPerRequest: val("ragMaxUrlsPerRequest") ? Number(val("ragMaxUrlsPerRequest")) : undefined,
     qualifyingQuestions: lines("qualifyingQuestions"),
     allowedOrigins: lines("allowedOrigins"),
     model: val("model") || undefined,
@@ -171,8 +185,10 @@ async function load(){
     setVal("brandHex", c.brandHex || "");
     setVal("leadMode", c.leadMode || "balanced");
     setVal("greeting", c.greeting || "");
-    setVal("capabilities", (c.capabilities||[]).join("\n"));
-    setVal("doNotClaim", (c.doNotClaim||[]).join("\n"));
+    setVal("knowledge", c.knowledge || "");
+    setVal("knowledgeUrls", (c.knowledgeUrls||[]).join("\n"));
+    document.getElementById("ragEnabled").checked = !!c.ragEnabled;
+    setVal("ragMaxUrlsPerRequest", c.ragMaxUrlsPerRequest != null ? String(c.ragMaxUrlsPerRequest) : "");
     setVal("qualifyingQuestions", (c.qualifyingQuestions||[]).join("\n"));
     setVal("allowedOrigins", (c.allowedOrigins||[]).join("\n"));
     setVal("model", c.model || "");

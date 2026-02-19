@@ -35,4 +35,26 @@ export type BotConfig = {
 
   // Optional: token caps
   maxTokens?: number;
+
+  /**
+   * Optional: extra domain-specific knowledge for this bot.
+   * Keep this concise (FAQ / pricing rules / policies / boundaries).
+   */
+  knowledge?: string;
+
+  /**
+   * Optional: URLs the bot may read from (static HTML recommended).
+   * These are fetched server-side and cached.
+   */
+  knowledgeUrls?: string[];
+
+  /**
+   * Optional: enable lightweight retrieval from knowledgeUrls on each request.
+   */
+  ragEnabled?: boolean;
+
+  /**
+   * Optional: maximum number of URLs to fetch per chat request.
+   */
+  ragMaxUrlsPerRequest?: number;
 };

@@ -51,6 +51,38 @@ In Admin UI:
 - Admin Token: the secret you set
 - Create/Update bot config
 
+### Bot training / customization (practical)
+
+You have 3 layers of "knowledge":
+
+1) **Curated "knowledge" text** (best first step): paste FAQ/policies/offers into the bot config. This is reliable.
+2) **knowledgeUrls + ragEnabled**: the worker can fetch a small set of static HTML pages and cache the text for 24h.
+3) **Full RAG pipeline (Vectorize)**: best for larger sites and frequent updates (recommended if you sell this broadly).
+
+For Digital SafeGrid, start with (1) + (2).
+
+Example config fields to set in Admin UI:
+- knowledge: paste curated FAQ/policies
+- knowledgeUrls: list key pages (Services, Pricing, FAQ, Contact)
+- ragEnabled: true
+- ragMaxUrlsPerRequest: 2
+
+#### Refresh URL cache
+
+After you change the website content, refresh the worker cache:
+
+```powershell
+$WORKER_URL = "https://client-chat-platform.evavo-studio.workers.dev"
+$ADMIN_TOKEN = "<your token>"
+
+curl -X POST "$WORKER_URL/admin/kb/refresh" `
+  -H "Authorization: Bearer $ADMIN_TOKEN" `
+  -H "Content-Type: application/json" `
+  -d '{"botId":"digital-safegrid"}'
+```
+
+> Note: `knowledgeUrls` uses plain `fetch()` (no JS rendering). For JS-heavy pages, use a build-time ingestion step (Playwright) to extract text and paste it into `knowledge`, or upgrade to Vectorize.
+
 ## 8) Add widget to a client website
 Host `widget/embed.js` somewhere (Cloudflare Pages is easiest), or copy it to the client site.
 

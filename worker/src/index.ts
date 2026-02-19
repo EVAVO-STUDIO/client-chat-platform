@@ -25,9 +25,23 @@ type BotConfig = {
   tone?: string;
   greeting?: string;
   brandHex?: string;
+  model?: string;
+  maxTokens?: number;
   leadMode?: "soft" | "balanced" | "hard";
   qualifyingQuestions?: string[];
   allowedOrigins?: string[];
+
+  /** Extra domain-specific knowledge (FAQ / policies / boundaries). */
+  knowledge?: string;
+
+  /** URLs to pull reference text from (static HTML recommended). */
+  knowledgeUrls?: string[];
+
+  /** Enable lightweight retrieval from knowledgeUrls. */
+  ragEnabled?: boolean;
+
+  /** Max URLs fetched per chat request (capped). */
+  ragMaxUrlsPerRequest?: number;
 };
 
 export interface Env {
@@ -36,11 +50,96 @@ export interface Env {
   ADMIN_TOKEN: string;
 }
 
+type RateLimit = {
+  windowMs: number;
+  max: number;
+};
+
+const DEFAULT_RATE_LIMIT: RateLimit = {
+  windowMs: 60_000,
+  max: 20,
+};
+
 const DEV_ALLOWED_ORIGINS = new Set([
   "http://localhost:3000",
   "http://localhost:5173",
   "http://localhost:8787",
 ]);
+
+async function sha1Hex(input: string): Promise<string> {
+  const enc = new TextEncoder().encode(input);
+  const buf = await crypto.subtle.digest("SHA-1", enc);
+  const b = new Uint8Array(buf);
+  return [...b].map((x) => x.toString(16).padStart(2, "0")).join("");
+}
+
+function stripHtmlToText(html: string): string {
+  return (
+    html
+      .replace(/<script[\s\S]*?<\/script>/gi, " ")
+      .replace(/<style[\s\S]*?<\/style>/gi, " ")
+      .replace(/<(br|p|div|li|h\d)[^>]*>/gi, "\n")
+      .replace(/<[^>]+>/g, " ")
+      .replace(/&nbsp;/g, " ")
+      .replace(/&amp;/g, "&")
+      .replace(/&lt;/g, "<")
+      .replace(/&gt;/g, ">")
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\n{3,}/g, "\n\n")
+      .replace(/[\t ]{2,}/g, " ")
+      .trim()
+  );
+}
+
+function clampText(s: string, max = 18_000) {
+  const t = (s ?? "").toString();
+  return t.length > max ? t.slice(0, max) + "…" : t;
+}
+
+async function getCachedUrlText(env: Env, botId: string, url: string): Promise<string | null> {
+  const key = `kb:url:${botId}:${await sha1Hex(url)}`;
+  const cached = await env.BOT_CONFIG.get(key);
+  if (cached) return cached;
+
+  const controller = new AbortController();
+  const t = setTimeout(() => controller.abort(), 7000);
+  try {
+    const res = await fetch(url, {
+      signal: controller.signal,
+      headers: {
+        "User-Agent": "EVAVO Client Chat Platform (kb fetch)",
+        "Accept": "text/html,application/xhtml+xml",
+      },
+      cf: {
+        cacheTtl: 60 * 60,
+        cacheEverything: true,
+      } as any,
+    });
+    if (!res.ok) return null;
+    const html = await res.text();
+    const text = clampText(stripHtmlToText(html), 14_000);
+    if (!text) return null;
+    await env.BOT_CONFIG.put(key, text, { expirationTtl: 60 * 60 * 24 });
+    return text;
+  } catch {
+    return null;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+async function checkRateLimit(env: Env, request: Request, botId: string, rl: RateLimit = DEFAULT_RATE_LIMIT) {
+  const ip = request.headers.get("cf-connecting-ip") || "unknown";
+  const bucket = Math.floor(Date.now() / rl.windowMs);
+  const key = `rl:${botId}:${ip}:${bucket}`;
+  const current = Number((await env.BOT_CONFIG.get(key)) || "0");
+  if (current >= rl.max) return { allowed: false };
+  await env.BOT_CONFIG.put(key, String(current + 1), {
+    expirationTtl: Math.ceil(rl.windowMs / 1000) + 5,
+  });
+  return { allowed: true };
+}
 
 function kvKey(botId: string) {
   return `bot:${botId}`;
@@ -120,6 +219,7 @@ function buildSystemPrompt(cfg: BotConfig) {
   const greeting = cfg.greeting ?? "Hi — how can I help today?";
   const leadMode = cfg.leadMode ?? "balanced";
   const qs = Array.isArray(cfg.qualifyingQuestions) ? cfg.qualifyingQuestions : [];
+  const knowledge = (cfg.knowledge ?? "").trim();
 
   const leadInstruction =
     leadMode === "hard"
@@ -132,6 +232,7 @@ function buildSystemPrompt(cfg: BotConfig) {
     `You are the website chat assistant for "${cfg.siteName}".`,
     `Tone: ${tone}.`,
     `Lead mode: ${leadMode}. ${leadInstruction}`,
+    knowledge ? `Additional knowledge (use when relevant):\n${knowledge}` : "",
     `If the user wants contact/onboarding, direct them to: ${
       cfg.contactUrl ?? "the contact page"
     }.`,
@@ -285,13 +386,61 @@ export default {
         tone: cfg.tone,
         greeting: cfg.greeting,
         brandHex: cfg.brandHex,
+        model: cfg.model,
+        maxTokens: cfg.maxTokens,
         leadMode: cfg.leadMode ?? "balanced",
         qualifyingQuestions: Array.isArray(cfg.qualifyingQuestions) ? cfg.qualifyingQuestions : [],
         allowedOrigins: Array.isArray(cfg.allowedOrigins) ? cfg.allowedOrigins : [],
+
+        knowledge: typeof cfg.knowledge === "string" ? cfg.knowledge.slice(0, 40_000) : undefined,
+        knowledgeUrls: Array.isArray(cfg.knowledgeUrls)
+          ? cfg.knowledgeUrls
+              .map((u) => (u ?? "").toString().trim())
+              .filter(Boolean)
+              .slice(0, 25)
+          : [],
+        ragEnabled: !!cfg.ragEnabled,
+        ragMaxUrlsPerRequest: Number.isFinite(Number(cfg.ragMaxUrlsPerRequest))
+          ? Math.min(Math.max(Number(cfg.ragMaxUrlsPerRequest), 1), 4)
+          : 2,
       };
 
       await env.BOT_CONFIG.put(kvKey(botId), JSON.stringify(stored));
       return withCors(json({ ok: true, requestId }), origin ?? null);
+    }
+
+    // Refresh cached knowledge URL text for a bot (useful after site changes)
+    if (url.pathname === "/admin/kb/refresh" && request.method === "POST") {
+      if (!isAuthorized(request, env)) {
+        return withCors(json({ ok: false, error: "Unauthorized", requestId }, { status: 401 }), origin ?? null);
+      }
+
+      const body = await readJson<{ botId?: string; urls?: string[] }>(request);
+      const botId = (body.botId ?? "").trim();
+      if (!botId) {
+        return withCors(json({ ok: false, error: "botId required", requestId }, { status: 400 }), origin ?? null);
+      }
+
+      const raw = await env.BOT_CONFIG.get(kvKey(botId));
+      if (!raw) {
+        return withCors(json({ ok: false, error: "Unknown bot", requestId }, { status: 404 }), origin ?? null);
+      }
+      const cfg = JSON.parse(raw) as BotConfig;
+
+      const urls = Array.isArray(body.urls) && body.urls.length
+        ? body.urls.map((u) => (u ?? "").toString().trim()).filter(Boolean)
+        : Array.isArray(cfg.knowledgeUrls)
+        ? cfg.knowledgeUrls
+        : [];
+
+      const max = Math.min(urls.length, 10);
+      const refreshed: { url: string; ok: boolean }[] = [];
+      for (const u of urls.slice(0, max)) {
+        const text = await getCachedUrlText(env, botId, u);
+        refreshed.push({ url: u, ok: !!text });
+      }
+
+      return withCors(json({ ok: true, botId, refreshed, requestId }, { status: 200 }), origin ?? null);
     }
 
     // ---------------- Public chat (CORS restricted) ----------------
@@ -320,6 +469,23 @@ export default {
 
         const cfg = JSON.parse(rawCfg) as BotConfig;
 
+        // Cost protection: basic per-IP rate limit (KV-backed).
+        const rl = await checkRateLimit(env, request, cfg.botId);
+        if (!rl.allowed) {
+          return withCors(
+            json(
+              {
+                ok: false,
+                error: "rate_limited",
+                detail: "Too many requests. Please try again shortly.",
+                requestId,
+              },
+              { status: 429 }
+            ),
+            origin ?? null
+          );
+        }
+
         const allowedOrigin = pickAllowedOrigin(origin, cfg);
         // If browser origin present and not allowed -> forbid
         if (origin && !allowedOrigin) {
@@ -332,9 +498,32 @@ export default {
         const messages = sanitizeMessages(body.messages);
         const system = buildSystemPrompt(cfg);
 
+        // Lightweight retrieval: fetch a small list of static pages and include as context.
+        // Note: JS-rendered pages may not work with plain fetch. For those, use an ingestion step.
+        let retrievedContext = "";
+        if (cfg.ragEnabled && Array.isArray(cfg.knowledgeUrls) && cfg.knowledgeUrls.length) {
+          const maxUrls = Math.min(cfg.ragMaxUrlsPerRequest ?? 2, 4);
+          const urls = cfg.knowledgeUrls.slice(0, maxUrls);
+          const texts = await Promise.all(urls.map((u) => getCachedUrlText(env, cfg.botId, u)));
+          const joined = texts.filter(Boolean).join("\n\n---\n\n");
+          retrievedContext = clampText(joined, 18_000);
+        }
+
+        const fullMessages: any[] = [{ role: "system", content: system }];
+        if (retrievedContext) {
+          fullMessages.push({
+            role: "system",
+            content:
+              "Context excerpts (cached from allowed URLs). Use as reference; if uncertain, ask a clarifying question.\n\n" +
+              retrievedContext,
+          });
+        }
+        fullMessages.push(...messages);
+
         // Native Workers AI call (env.AI binding)
-        const result = await env.AI.run("@cf/meta/llama-3-8b-instruct", {
-          messages: [{ role: "system", content: system }, ...messages],
+        const result = await env.AI.run(cfg.model || "@cf/meta/llama-3-8b-instruct", {
+          messages: fullMessages,
+          max_tokens: Math.min(Math.max(Number(cfg.maxTokens ?? 512), 64), 2048),
         });
 
         const text = extractText(result);
