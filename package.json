@@ -1,0 +1,13 @@
+{
+  "name": "client-chat-platform",
+  "private": true,
+  "version": "1.0.0",
+  "description": "Cloudflare Worker + embeddable widget for client website chat.",
+  "scripts": {
+    "dev": "npm --prefix worker run dev",
+    "deploy": "npm --prefix worker run deploy",
+    "tail": "npm --prefix worker run tail",
+    "whoami": "npm --prefix worker run whoami",
+    "typecheck": "npm --prefix worker run typecheck"
+  }
+}

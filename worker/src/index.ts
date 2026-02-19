@@ -373,40 +373,51 @@ export default {
         return withCors(json({ ok: false, error: "Unauthorized", requestId }, { status: 401 }), origin ?? null);
       }
 
-      const cfg = await readJson<BotConfig>(request);
-      const botId = (cfg.botId ?? "").trim();
-      if (!botId) {
-        return withCors(json({ ok: false, error: "botId required", requestId }, { status: 400 }), origin ?? null);
+      // IMPORTANT: never let admin writes crash the worker.
+      // A hard crash becomes Cloudflare's opaque "1101" error code.
+      try {
+        const cfg = await readJson<BotConfig>(request);
+        const botId = (cfg.botId ?? "").trim();
+        if (!botId) {
+          return withCors(json({ ok: false, error: "botId required", requestId }, { status: 400 }), origin ?? null);
+        }
+
+        const stored: BotConfig = {
+          botId,
+          siteName: (cfg.siteName ?? "Site").trim(),
+          contactUrl: cfg.contactUrl,
+          tone: cfg.tone,
+          greeting: cfg.greeting,
+          brandHex: cfg.brandHex,
+          model: cfg.model,
+          maxTokens: cfg.maxTokens,
+          leadMode: cfg.leadMode ?? "balanced",
+          qualifyingQuestions: Array.isArray(cfg.qualifyingQuestions) ? cfg.qualifyingQuestions : [],
+          allowedOrigins: Array.isArray(cfg.allowedOrigins) ? cfg.allowedOrigins : [],
+
+          knowledge: typeof cfg.knowledge === "string" ? cfg.knowledge.slice(0, 40_000) : undefined,
+          knowledgeUrls: Array.isArray(cfg.knowledgeUrls)
+            ? cfg.knowledgeUrls
+                .map((u) => (u ?? "").toString().trim())
+                .filter(Boolean)
+                .slice(0, 25)
+            : [],
+          ragEnabled: !!cfg.ragEnabled,
+          ragMaxUrlsPerRequest: Number.isFinite(Number(cfg.ragMaxUrlsPerRequest))
+            ? Math.min(Math.max(Number(cfg.ragMaxUrlsPerRequest), 1), 4)
+            : 2,
+        };
+
+        await env.BOT_CONFIG.put(kvKey(botId), JSON.stringify(stored));
+        return withCors(json({ ok: true, requestId }, { status: 200 }), origin ?? null);
+      } catch (e) {
+        console.error("/admin/upsert failed", e);
+        const detail = (e as Error)?.message || "Unknown error";
+        return withCors(
+          json({ ok: false, error: "internal_error", detail, requestId }, { status: 500 }),
+          origin ?? null
+        );
       }
-
-      const stored: BotConfig = {
-        botId,
-        siteName: (cfg.siteName ?? "Site").trim(),
-        contactUrl: cfg.contactUrl,
-        tone: cfg.tone,
-        greeting: cfg.greeting,
-        brandHex: cfg.brandHex,
-        model: cfg.model,
-        maxTokens: cfg.maxTokens,
-        leadMode: cfg.leadMode ?? "balanced",
-        qualifyingQuestions: Array.isArray(cfg.qualifyingQuestions) ? cfg.qualifyingQuestions : [],
-        allowedOrigins: Array.isArray(cfg.allowedOrigins) ? cfg.allowedOrigins : [],
-
-        knowledge: typeof cfg.knowledge === "string" ? cfg.knowledge.slice(0, 40_000) : undefined,
-        knowledgeUrls: Array.isArray(cfg.knowledgeUrls)
-          ? cfg.knowledgeUrls
-              .map((u) => (u ?? "").toString().trim())
-              .filter(Boolean)
-              .slice(0, 25)
-          : [],
-        ragEnabled: !!cfg.ragEnabled,
-        ragMaxUrlsPerRequest: Number.isFinite(Number(cfg.ragMaxUrlsPerRequest))
-          ? Math.min(Math.max(Number(cfg.ragMaxUrlsPerRequest), 1), 4)
-          : 2,
-      };
-
-      await env.BOT_CONFIG.put(kvKey(botId), JSON.stringify(stored));
-      return withCors(json({ ok: true, requestId }), origin ?? null);
     }
 
     // Refresh cached knowledge URL text for a bot (useful after site changes)
