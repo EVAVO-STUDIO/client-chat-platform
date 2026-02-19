@@ -1,0 +1,31 @@
+/**
+ * Cloudflare Wrangler config (JSONC)
+ * Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+ */
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+
+  "name": "client-chat-platform",
+  "main": "src/index.ts",
+
+  "compatibility_date": "2026-02-17",
+  "compatibility_flags": ["nodejs_compat"],
+
+  // Silence the deploy warnings you saw:
+  "workers_dev": true,
+  "preview_urls": false,
+
+  // Bind Workers AI (env.AI)
+  "ai": { "binding": "AI" },
+
+  // Bind KV (env.BOT_CONFIG)
+  "kv_namespaces": [
+    {
+      "binding": "BOT_CONFIG",
+      "id": "6905c89c2d8f4e7d99aa3837fd98f1b5"
+    }
+  ],
+
+  // Optional (free/basic)
+  "observability": { "enabled": true }
+}

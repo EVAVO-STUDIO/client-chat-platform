@@ -1,0 +1,18 @@
+# OS / tooling
+.DS_Store
+Thumbs.db
+
+# Node
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Cloudflare / Wrangler
+.wrangler/
+dist/
+
+# Env
+.env
+.env.*

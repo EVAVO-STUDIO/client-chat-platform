@@ -1,0 +1,187 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>Client Chat Platform — Admin</title>
+  <style>
+    :root{color-scheme:dark}
+    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#070a0f;color:#e8eef6}
+    .wrap{max-width:980px;margin:0 auto;padding:28px}
+    .card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px}
+    h1{font-size:18px;margin:0 0 14px}
+    label{font-size:12px;color:rgba(255,255,255,.75);display:block;margin:12px 0 6px}
+    input,textarea,select{width:100%;box-sizing:border-box;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.10);border-radius:12px;color:#fff;padding:10px;font-size:13px;outline:none}
+    textarea{min-height:96px;resize:vertical}
+    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+    .btns{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
+    button{border:0;border-radius:12px;padding:10px 12px;font-weight:800;cursor:pointer}
+    .primary{background:#00e589;color:#08110d}
+    .ghost{background:rgba(255,255,255,.08);color:#fff}
+    .note{font-size:12px;color:rgba(255,255,255,.7);margin-top:10px;line-height:1.4}
+    pre{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;overflow:auto}
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Client Chat Platform — Admin</h1>
+
+      <div class="row">
+        <div>
+          <label>API Base (Worker URL)</label>
+          <input id="apiBase" placeholder="https://client-chat-platform.<sub>.workers.dev" />
+        </div>
+        <div>
+          <label>Admin Token (Bearer)</label>
+          <input id="token" placeholder="paste ADMIN_TOKEN" />
+        </div>
+      </div>
+
+      <label>Bot ID</label>
+      <input id="botId" placeholder="digital-safegrid" />
+
+      <div class="row">
+        <div>
+          <label>Site name</label>
+          <input id="siteName" placeholder="Digital SafeGrid" />
+        </div>
+        <div>
+          <label>Contact URL</label>
+          <input id="contactUrl" placeholder="https://example.com/contact" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>Brand hex</label>
+          <input id="brandHex" placeholder="#00e589" />
+        </div>
+        <div>
+          <label>Lead mode</label>
+          <select id="leadMode">
+            <option value="soft">soft</option>
+            <option value="balanced" selected>balanced</option>
+            <option value="aggressive">aggressive</option>
+          </select>
+        </div>
+      </div>
+
+      <label>Greeting</label>
+      <textarea id="greeting" placeholder="Hi — I can help with..."></textarea>
+
+      <label>Capabilities (one per line)</label>
+      <textarea id="capabilities"></textarea>
+
+      <label>Do-not-claim (one per line)</label>
+      <textarea id="doNotClaim"></textarea>
+
+      <label>Qualifying questions (one per line)</label>
+      <textarea id="qualifyingQuestions"></textarea>
+
+      <label>Allowed origins (one per line, optional)</label>
+      <textarea id="allowedOrigins" placeholder="https://client.com&#10;https://www.client.com"></textarea>
+
+      <div class="row">
+        <div>
+          <label>Model override (optional)</label>
+          <input id="model" placeholder="@cf/meta/llama-3-8b-instruct" />
+        </div>
+        <div>
+          <label>Max tokens (optional)</label>
+          <input id="maxTokens" placeholder="420" />
+        </div>
+      </div>
+
+      <div class="btns">
+        <button class="primary" id="saveBtn">Save / Update</button>
+        <button class="ghost" id="loadBtn">Load</button>
+      </div>
+
+      <div class="note">
+        Tip: keep model small + token caps low for $0-friendly operation. Add allowedOrigins to prevent abuse.
+      </div>
+
+      <label>Result</label>
+      <pre id="out">{ }</pre>
+    </div>
+  </div>
+
+<script>
+function lines(id){
+  const v = (document.getElementById(id).value || "").trim();
+  if (!v) return [];
+  return v.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
+}
+function val(id){ return (document.getElementById(id).value || "").trim(); }
+function setVal(id, v){ document.getElementById(id).value = v || ""; }
+
+function apiHeaders(){
+  const token = val("token");
+  return {
+    "content-type": "application/json",
+    "authorization": token ? ("Bearer " + token) : ""
+  };
+}
+function apiBase(){
+  return val("apiBase").replace(/\/$/,"");
+}
+function out(obj){
+  document.getElementById("out").textContent = JSON.stringify(obj, null, 2);
+}
+
+async function save(){
+  const cfg = {
+    botId: val("botId"),
+    siteName: val("siteName"),
+    contactUrl: val("contactUrl"),
+    brandHex: val("brandHex") || undefined,
+    leadMode: val("leadMode") || "balanced",
+    greeting: val("greeting"),
+    capabilities: lines("capabilities"),
+    doNotClaim: lines("doNotClaim"),
+    qualifyingQuestions: lines("qualifyingQuestions"),
+    allowedOrigins: lines("allowedOrigins"),
+    model: val("model") || undefined,
+    maxTokens: val("maxTokens") ? Number(val("maxTokens")) : undefined
+  };
+
+  const res = await fetch(apiBase() + "/admin/upsert", {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify(cfg)
+  });
+  const data = await res.json().catch(()=>({}));
+  out({ status: res.status, data });
+}
+
+async function load(){
+  const res = await fetch(apiBase() + "/admin/get", {
+    method: "POST",
+    headers: apiHeaders(),
+    body: JSON.stringify({ botId: val("botId") })
+  });
+  const data = await res.json().catch(()=>({}));
+  out({ status: res.status, data });
+
+  if (res.ok && data && data.cfg){
+    const c = data.cfg;
+    setVal("siteName", c.siteName);
+    setVal("contactUrl", c.contactUrl);
+    setVal("brandHex", c.brandHex || "");
+    setVal("leadMode", c.leadMode || "balanced");
+    setVal("greeting", c.greeting || "");
+    setVal("capabilities", (c.capabilities||[]).join("\n"));
+    setVal("doNotClaim", (c.doNotClaim||[]).join("\n"));
+    setVal("qualifyingQuestions", (c.qualifyingQuestions||[]).join("\n"));
+    setVal("allowedOrigins", (c.allowedOrigins||[]).join("\n"));
+    setVal("model", c.model || "");
+    setVal("maxTokens", c.maxTokens != null ? String(c.maxTokens) : "");
+  }
+}
+
+document.getElementById("saveBtn").addEventListener("click", ()=>save().catch(e=>out({error:String(e)})));
+document.getElementById("loadBtn").addEventListener("click", ()=>load().catch(e=>out({error:String(e)})));
+</script>
+</body>
+</html>
