@@ -7,14 +7,14 @@
   "name": "client-chat-platform",
   "main": "src/index.ts",
   "compatibility_date": "2026-02-17",
-  "compatibility_flags": [
-    "nodejs_compat"
-  ],
+  "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
   "preview_urls": false,
+
   "ai": {
     "binding": "AI"
   },
+
   "kv_namespaces": [
     {
       "binding": "BOT_CONFIG",
@@ -22,11 +22,16 @@
     },
     {
       "binding": "KB_CACHE",
-      // Create with: wrangler kv namespace create "KB_CACHE"  (and preview variant)
-      "id": "REPLACE_WITH_KV_ID",
-      "preview_id": "REPLACE_WITH_KV_PREVIEW_ID"
+      // Remote KV for production + preview KV for local dev/preview.
+      // You already created the prod namespace and got this ID:
+      "id": "f4dc6f06fb4f4334a1f574c631d5c834",
+
+      // IMPORTANT: create the preview namespace and paste its id here:
+      //   npx wrangler kv namespace create "KB_CACHE" --preview
+      "preview_id": "9cbcf7921ec14f1597fda7ae366e2677"
     }
   ],
+
   "observability": {
     "enabled": true
   }
