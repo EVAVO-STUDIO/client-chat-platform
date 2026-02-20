@@ -1,193 +1,243 @@
-/*!
- * Client Chat Widget (no build step required)
- * Usage:
- * <script src="https://HOST/embed.js" data-api-base="https://WORKER_URL" data-bot-id="your-bot" data-title="Support"></script>
- */
-(function () {
-  const script = document.currentScript;
-  if (!script) return;
+// widget/embed.js
+// Lightweight embeddable widget for the Client Chat Platform.
+// Usage (on client site):
+//   <script src="https://YOUR_WORKER_DOMAIN/widget/embed.js" data-bot="digital-safegrid" data-title="Assistant"></script>
 
-  const apiBase = script.getAttribute("data-api-base") || "";
-  const botId = script.getAttribute("data-bot-id") || "";
-  const title = script.getAttribute("data-title") || "Chat";
-  const brand = script.getAttribute("data-brand") || "#00e589";
+(() => {
+  const CURRENT_SCRIPT = document.currentScript;
+  const BOT_ID = (CURRENT_SCRIPT?.getAttribute("data-bot") || "default").trim();
+  const TITLE = (CURRENT_SCRIPT?.getAttribute("data-title") || "Chat").trim();
+  const CONTACT_URL = (CURRENT_SCRIPT?.getAttribute("data-contact") || "").trim();
 
-  if (!apiBase || !botId) {
-    console.warn("[ChatWidget] Missing data-api-base or data-bot-id");
-    return;
-  }
+  // Base is the origin where this script is served (worker domain).
+  const BASE = new URL(CURRENT_SCRIPT?.src || window.location.href).origin;
 
-  const storageKey = `ccp:${botId}:history`;
-  const prefersReduced = window.matchMedia && window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const css = `
+  .ccp-launcher{position:fixed;right:16px;bottom:16px;z-index:99999;width:52px;height:52px;border-radius:999px;border:1px solid rgba(255,255,255,.12);background:#0a0a0a;color:#fff;box-shadow:0 18px 45px rgba(0,0,0,.35);cursor:pointer}
+  .ccp-panel{position:fixed;right:16px;bottom:76px;z-index:99999;width:360px;max-width:calc(100vw - 32px);max-height:min(70vh,560px);display:none;flex-direction:column;overflow:hidden;border-radius:18px;border:1px solid rgba(255,255,255,.12);background:#0b0b0b;color:#fff;box-shadow:0 18px 60px rgba(0,0,0,.45)}
+  .ccp-header{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:10px 12px;border-bottom:1px solid rgba(255,255,255,.10)}
+  .ccp-title{font:600 13px/1.2 ui-sans-serif,system-ui;opacity:.95}
+  .ccp-close{border:1px solid rgba(255,255,255,.14);background:transparent;color:#fff;border-radius:10px;width:32px;height:32px;cursor:pointer}
+  .ccp-body{padding:10px 12px;overflow:auto;flex:1;display:flex;flex-direction:column;gap:10px}
+  .ccp-row{display:flex}
+  .ccp-bubble{max-width:85%;padding:10px 12px;border-radius:16px;border:1px solid rgba(255,255,255,.10);font:500 13px/1.4 ui-sans-serif,system-ui;white-space:pre-wrap}
+  .ccp-user{justify-content:flex-end}
+  .ccp-user .ccp-bubble{background:#34d399;color:#04120a;border-color:rgba(0,0,0,.12)}
+  .ccp-assistant{justify-content:flex-start}
+  .ccp-assistant .ccp-bubble{background:rgba(255,255,255,.06)}
+  .ccp-footer{padding:10px 12px;border-top:1px solid rgba(255,255,255,.10);display:flex;gap:8px;align-items:flex-end}
+  .ccp-input{flex:1;min-height:38px;max-height:120px;resize:none;border-radius:12px;border:1px solid rgba(255,255,255,.12);background:rgba(255,255,255,.06);color:#fff;padding:9px 10px;font:500 13px/1.35 ui-sans-serif,system-ui;outline:none}
+  .ccp-send{width:40px;height:40px;border-radius:12px;border:0;background:#34d399;color:#04120a;font-weight:700;cursor:pointer}
+  .ccp-send[disabled]{opacity:.45;cursor:not-allowed}
+  .ccp-meta{padding:0 12px 10px 12px;font:12px/1.3 ui-sans-serif,system-ui;color:rgba(255,255,255,.65)}
+  .ccp-chip{display:inline-flex;align-items:center;gap:6px;border:1px solid rgba(255,255,255,.14);background:rgba(255,255,255,.06);border-radius:999px;padding:7px 10px;color:#fff;font:600 12px/1 ui-sans-serif,system-ui;cursor:pointer}
+  `;
 
   const style = document.createElement("style");
-  style.textContent = `
-  .ccp-launcher{position:fixed;right:18px;bottom:18px;z-index:999999;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial}
-  .ccp-bubble{width:56px;height:56px;border-radius:999px;background:${brand};box-shadow:0 10px 30px rgba(0,0,0,.18);display:flex;align-items:center;justify-content:center;cursor:pointer;user-select:none;transition:transform .2s ease}
-  .ccp-bubble:hover{transform:translateY(-1px)}
-  .ccp-icon{width:22px;height:22px;fill:white}
-  .ccp-panel{position:fixed;right:18px;bottom:86px;width:min(380px,calc(100vw - 36px));height:min(560px,calc(100vh - 120px));background:#0b0f14;border:1px solid rgba(255,255,255,.08);border-radius:18px;box-shadow:0 20px 60px rgba(0,0,0,.35);overflow:hidden;display:none;flex-direction:column;z-index:999999}
-  .ccp-panel.open{display:flex}
-  .ccp-header{display:flex;align-items:center;justify-content:space-between;padding:14px 14px;background:rgba(255,255,255,.02);border-bottom:1px solid rgba(255,255,255,.08)}
-  .ccp-title{color:#fff;font-weight:700;font-size:14px;letter-spacing:.2px}
-  .ccp-close{color:rgba(255,255,255,.7);cursor:pointer;border-radius:10px;padding:6px 8px}
-  .ccp-close:hover{background:rgba(255,255,255,.06)}
-  .ccp-messages{padding:14px;gap:10px;display:flex;flex-direction:column;overflow:auto;flex:1}
-  .ccp-msg{max-width:85%;padding:10px 12px;border-radius:14px;line-height:1.35;font-size:13px;white-space:pre-wrap;word-wrap:break-word}
-  .ccp-user{align-self:flex-end;background:rgba(255,255,255,.10);color:#fff;border-top-right-radius:6px}
-  .ccp-assistant{align-self:flex-start;background:rgba(0,0,0,.30);color:rgba(255,255,255,.92);border-top-left-radius:6px;border:1px solid rgba(255,255,255,.06)}
-  .ccp-footer{display:flex;gap:8px;padding:12px;border-top:1px solid rgba(255,255,255,.08);background:rgba(255,255,255,.02)}
-  .ccp-input{flex:1;border-radius:12px;border:1px solid rgba(255,255,255,.10);background:rgba(0,0,0,.25);color:#fff;padding:10px 10px;font-size:13px;outline:none}
-  .ccp-input:focus{border-color:${brand}}
-  .ccp-send{border:0;border-radius:12px;background:${brand};color:#08110d;font-weight:800;padding:10px 12px;cursor:pointer}
-  .ccp-send:disabled{opacity:.6;cursor:not-allowed}
-  .ccp-hint{color:rgba(255,255,255,.55);font-size:11px;padding:0 14px 12px}
-  `;
+  style.textContent = css;
   document.head.appendChild(style);
 
-  function el(tag, cls, text) {
-    const x = document.createElement(tag);
-    if (cls) x.className = cls;
-    if (text != null) x.textContent = text;
-    return x;
-  }
+  const launcher = document.createElement("button");
+  launcher.className = "ccp-launcher";
+  launcher.type = "button";
+  launcher.setAttribute("aria-label", "Open chat");
+  launcher.textContent = "💬";
 
-  const launcher = el("div", "ccp-launcher");
-  const bubble = el("div", "ccp-bubble");
-  bubble.setAttribute("aria-label", "Open chat");
-  bubble.setAttribute("role", "button");
+  const panel = document.createElement("div");
+  panel.className = "ccp-panel";
+  panel.setAttribute("role", "dialog");
+  panel.setAttribute("aria-label", TITLE);
 
-  const svg = document.createElementNS("http://www.w3.org/2000/svg","svg");
-  svg.setAttribute("viewBox","0 0 24 24");
-  svg.setAttribute("class","ccp-icon");
-  svg.innerHTML = '<path d="M12 3c-5.2 0-9 3.4-9 8 0 2.4 1.2 4.5 3.2 6l-.7 3.6c-.1.6.5 1.1 1.1.9l4.1-1.6c.7.1 1.5.2 2.3.2 5.2 0 9-3.4 9-8s-3.8-8-9-8Zm-4 9h8v2H8v-2Zm0-4h8v2H8V8Z"/>';
-  bubble.appendChild(svg);
+  const header = document.createElement("div");
+  header.className = "ccp-header";
 
-  const panel = el("div", "ccp-panel");
-  const header = el("div", "ccp-header");
-  const hTitle = el("div", "ccp-title", title);
-  const close = el("div", "ccp-close", "✕");
-  close.setAttribute("role","button");
-  close.setAttribute("aria-label","Close chat");
-  header.appendChild(hTitle);
-  header.appendChild(close);
+  const title = document.createElement("div");
+  title.className = "ccp-title";
+  title.textContent = TITLE;
 
-  const messages = el("div", "ccp-messages");
-  const hint = el("div", "ccp-hint", "This is an AI assistant. For sensitive info, use the contact form.");
+  const closeBtn = document.createElement("button");
+  closeBtn.className = "ccp-close";
+  closeBtn.type = "button";
+  closeBtn.setAttribute("aria-label", "Close chat");
+  closeBtn.textContent = "×";
 
-  const footer = el("div", "ccp-footer");
-  const input = el("input", "ccp-input");
-  input.type = "text";
-  input.placeholder = "Type your message…";
-  input.setAttribute("aria-label","Chat message");
+  header.appendChild(title);
+  header.appendChild(closeBtn);
 
-  const send = el("button", "ccp-send", "Send");
+  const body = document.createElement("div");
+  body.className = "ccp-body";
+
+  const meta = document.createElement("div");
+  meta.className = "ccp-meta";
+
+  const footer = document.createElement("div");
+  footer.className = "ccp-footer";
+
+  const input = document.createElement("textarea");
+  input.className = "ccp-input";
+  input.rows = 1;
+  input.placeholder = "Ask a question…";
+
+  const send = document.createElement("button");
+  send.className = "ccp-send";
+  send.type = "button";
+  send.textContent = "↑";
+
   footer.appendChild(input);
   footer.appendChild(send);
 
   panel.appendChild(header);
-  panel.appendChild(messages);
-  panel.appendChild(hint);
+  panel.appendChild(body);
   panel.appendChild(footer);
+  panel.appendChild(meta);
 
-  launcher.appendChild(bubble);
   document.body.appendChild(launcher);
   document.body.appendChild(panel);
 
-  function loadHistory() {
-    try {
-      const raw = localStorage.getItem(storageKey);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
-    } catch {
-      return [];
+  let open = false;
+  let busy = false;
+  let abortCtrl = null;
+  const messages = [];
+
+  function setOpen(v) {
+    open = v;
+    panel.style.display = open ? "flex" : "none";
+    launcher.setAttribute("aria-label", open ? "Close chat" : "Open chat");
+    if (open) {
+      setTimeout(() => input.focus(), 50);
+      scrollToBottom();
     }
   }
 
-  function saveHistory(arr) {
-    try { localStorage.setItem(storageKey, JSON.stringify(arr.slice(-20))); } catch {}
+  function scrollToBottom() {
+    body.scrollTop = body.scrollHeight;
   }
 
-  function renderMessage(role, content) {
-    const node = el("div", "ccp-msg " + (role === "user" ? "ccp-user" : "ccp-assistant"));
-    node.textContent = content;
-    messages.appendChild(node);
-    messages.scrollTop = messages.scrollHeight;
+  function autoresize() {
+    input.style.height = "0px";
+    input.style.height = Math.min(input.scrollHeight, 120) + "px";
   }
 
-  function setOpen(v) {
-    if (v) panel.classList.add("open");
-    else panel.classList.remove("open");
+  function addMsg(role, text) {
+    const row = document.createElement("div");
+    row.className = "ccp-row " + (role === "user" ? "ccp-user" : "ccp-assistant");
+
+    const bubble = document.createElement("div");
+    bubble.className = "ccp-bubble";
+    bubble.textContent = text;
+
+    row.appendChild(bubble);
+    body.appendChild(row);
+    messages.push({ role, content: text });
+    scrollToBottom();
   }
 
-  function toggle() {
-    const isOpen = panel.classList.contains("open");
-    setOpen(!isOpen);
-    if (!isOpen) input.focus();
+  function setMeta(text) {
+    meta.textContent = text || "";
   }
 
-  bubble.addEventListener("click", toggle);
-  close.addEventListener("click", () => setOpen(false));
-  bubble.addEventListener("keydown", (e) => { if (e.key === "Enter" || e.key === " ") toggle(); });
-
-  // hydrate history
-  const history = loadHistory();
-  history.forEach((m) => renderMessage(m.role, m.content));
-
-  // if no history, show greeting placeholder by sending empty hello to server is costly; so we just show a local greeting if provided
-  if (history.length === 0) {
-    renderMessage("assistant", "Hi — how can I help today?");
+  function setBusy(v) {
+    busy = v;
+    send.disabled = busy || !(input.value || "").trim() || !navigator.onLine;
+    launcher.disabled = false;
   }
 
   async function sendMessage() {
     const text = (input.value || "").trim();
-    if (!text) return;
+    if (!text || busy) return;
 
+    if (!navigator.onLine) {
+      setMeta("You’re offline. Check your connection and try again.");
+      return;
+    }
+
+    addMsg("user", text);
     input.value = "";
-    renderMessage("user", text);
+    autoresize();
+    setMeta("");
+    setBusy(true);
 
-    const h = loadHistory();
-    h.push({ role: "user", content: text });
-
-    send.disabled = true;
+    if (abortCtrl) abortCtrl.abort();
+    abortCtrl = new AbortController();
 
     try {
-      const res = await fetch(apiBase.replace(/\/$/,"") + "/api/chat", {
+      const res = await fetch(`${BASE}/api/chat`, {
         method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          botId,
-          messages: h.slice(-12),
-          meta: { pageUrl: location.href, referrer: document.referrer, userAgent: navigator.userAgent },
-        }),
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botId: BOT_ID, messages: messages.slice(-20) }),
+        signal: abortCtrl.signal,
       });
 
-      const data = await res.json().catch(() => ({}));
+      const data = await res.json().catch(() => null);
       if (!res.ok) {
-        const msg = data && data.error ? data.error : "Request failed";
-        renderMessage("assistant", "Sorry — " + msg + ".");
-        h.push({ role: "assistant", content: "Sorry — " + msg + "." });
-        saveHistory(h);
-        return;
+        const msg = (data && (data.detail || data.error)) || `HTTP ${res.status}`;
+        throw new Error(msg);
       }
 
-      const reply = (data && data.reply) ? String(data.reply) : "Sorry — I didn’t get a response.";
-      renderMessage("assistant", reply);
-      h.push({ role: "assistant", content: reply });
-      saveHistory(h);
+      const reply = (data && (data.message || data.reply)) || "";
+      addMsg("assistant", reply || "Sorry — I couldn’t generate a response.");
+
+      // Optional action support
+      const action = data && data.action;
+      if (action && action.type === "open_contact") {
+        const url = action.contactUrl || CONTACT_URL;
+        if (url) {
+          const chip = document.createElement("button");
+          chip.className = "ccp-chip";
+          chip.type = "button";
+          chip.textContent = "Open contact form";
+          chip.onclick = () => {
+            try {
+              const u = new URL(url, window.location.origin);
+              const summary = (action.payload && action.payload.summary) ? String(action.payload.summary) : "";
+              if (summary) u.searchParams.set("message", summary);
+              window.location.href = u.toString();
+            } catch {
+              window.location.href = url;
+            }
+          };
+          meta.textContent = "";
+          meta.appendChild(chip);
+        }
+      }
     } catch (err) {
-      renderMessage("assistant", "Sorry — network error. Please try again.");
-      const h2 = loadHistory();
-      h2.push({ role: "assistant", content: "Sorry — network error. Please try again." });
-      saveHistory(h2);
+      if (String(err?.name) === "AbortError") {
+        setMeta("Stopped.");
+      } else {
+        setMeta("Chat error. Try again, or use the contact page.");
+      }
     } finally {
-      send.disabled = false;
+      setBusy(false);
     }
   }
 
-  send.addEventListener("click", sendMessage);
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") sendMessage();
+  launcher.addEventListener("click", () => setOpen(!open));
+  closeBtn.addEventListener("click", () => setOpen(false));
+
+  input.addEventListener("input", () => {
+    autoresize();
+    send.disabled = busy || !(input.value || "").trim() || !navigator.onLine;
   });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
+      sendMessage();
+    }
+  });
+
+  send.addEventListener("click", sendMessage);
+
+  window.addEventListener("online", () => {
+    setMeta("");
+    setBusy(busy);
+  });
+  window.addEventListener("offline", () => {
+    setMeta("Offline.");
+    setBusy(busy);
+  });
+
+  // Initial greeting
+  addMsg("assistant", "Hi — how can I help?");
+  setBusy(false);
 })();

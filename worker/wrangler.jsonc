@@ -4,28 +4,30 @@
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
-
   "name": "client-chat-platform",
   "main": "src/index.ts",
-
   "compatibility_date": "2026-02-17",
-  "compatibility_flags": ["nodejs_compat"],
-
-  // Silence the deploy warnings you saw:
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
   "workers_dev": true,
   "preview_urls": false,
-
-  // Bind Workers AI (env.AI)
-  "ai": { "binding": "AI" },
-
-  // Bind KV (env.BOT_CONFIG)
+  "ai": {
+    "binding": "AI"
+  },
   "kv_namespaces": [
     {
       "binding": "BOT_CONFIG",
       "id": "6905c89c2d8f4e7d99aa3837fd98f1b5"
+    },
+    {
+      "binding": "KB_CACHE",
+      // Create with: wrangler kv namespace create "KB_CACHE"  (and preview variant)
+      "id": "REPLACE_WITH_KV_ID",
+      "preview_id": "REPLACE_WITH_KV_PREVIEW_ID"
     }
   ],
-
-  // Optional (free/basic)
-  "observability": { "enabled": true }
+  "observability": {
+    "enabled": true
+  }
 }

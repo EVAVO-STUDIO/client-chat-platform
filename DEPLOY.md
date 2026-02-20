@@ -65,7 +65,12 @@ Example config fields to set in Admin UI:
 - knowledge: paste curated FAQ/policies
 - knowledgeUrls: list key pages (Services, Pricing, FAQ, Contact)
 - ragEnabled: true
+- ragMode: "simple" (default) or "embed" (best answers)
 - ragMaxUrlsPerRequest: 2
+- ragTopKChunks: 4
+- ragChunkChars: 1200
+- ragCacheTtlSeconds: 86400
+- ragEmbeddingModel: "@cf/baai/bge-base-en-v1.5"
 
 #### Refresh URL cache
 
@@ -80,6 +85,10 @@ curl -X POST "$WORKER_URL/admin/kb/refresh" `
   -H "Content-Type: application/json" `
   -d '{"botId":"digital-safegrid"}'
 ```
+
+> Note: `knowledgeUrls` uses plain `fetch()` (no JS rendering).
+>
+> If you set **ragMode="embed"**, the worker chunks page text and uses embeddings to pick the most relevant excerpts (with KV caching). If embeddings fail, it falls back to simple mode.
 
 > Note: `knowledgeUrls` uses plain `fetch()` (no JS rendering). For JS-heavy pages, use a build-time ingestion step (Playwright) to extract text and paste it into `knowledge`, or upgrade to Vectorize.
 
