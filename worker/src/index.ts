@@ -3,10 +3,21 @@
  * Client Chat Platform (Cloudflare Worker)
  * - Multi-tenant chatbot backend with optional RAG from allow-listed URLs
  * - Admin endpoints to configure each bot
- * - Optional "actions" (webhooks) to support interactive workflows (lead capture, handoff, etc.)
+ * - Strict cost & abuse controls (rate limit + daily budgets + optional bot key)
+ * - Safer prompting (no invented pricing/SLAs; use KB links when unsure)
  *
  * Backward compatibility:
  * - /api/chat still returns { ok, message } and also includes { reply: message }
+ *
+ * NOTE ON “NO COST”:
+ * You cannot *guarantee* $0 spend if the endpoint is reachable and AI is enabled,
+ * but this code makes it extremely hard to incur unexpected charges by enforcing:
+ * - Origin allowlist (recommended)
+ * - Per-IP rate limit
+ * - Per-bot daily request budget (hard stop)
+ * - Optional botKey gate (hard stop if configured)
+ * - MaxTokens caps
+ * - RAG embed-mode chunk caps
  */
 
 export interface Env {
@@ -15,6 +26,28 @@ export interface Env {
   AI: any; // Cloudflare AI binding
   ADMIN_TOKEN?: string; // set via `wrangler secret put ADMIN_TOKEN`
 }
+
+/** ===== Hard global caps (defense in depth) ===== */
+const GLOBAL_MAX_TOKENS = 1024; // hard ceiling regardless of config
+const GLOBAL_MAX_TURNS = 30;
+const GLOBAL_MAX_CHARS_PER_MESSAGE = 8000;
+
+// Guard total prompt size (system + knowledge + RAG + conversation)
+const GLOBAL_MAX_SYSTEM_CHARS = 30_000;
+const GLOBAL_MAX_TOTAL_INPUT_CHARS = 75_000;
+
+const GLOBAL_RAG_MAX_URLS = 5;
+const GLOBAL_RAG_MAX_TOPK = 8;
+const GLOBAL_RAG_MAX_CHUNK_CHARS = 2000;
+
+/**
+ * Embed-mode can be expensive (embeddings per chunk).
+ * We cap how many chunks per page we will embed (per request) to reduce cost.
+ */
+const GLOBAL_RAG_EMBED_MAX_CHUNKS_PER_PAGE = 24;
+
+/** Daily budget key namespace */
+const BUDGET_KEY_PREFIX = "bud:v1";
 
 /** ===== Types ===== */
 
@@ -27,27 +60,30 @@ type LeadMode = "soft" | "balanced" | "direct";
 type ActionType = "open_contact" | "create_lead" | "webhook" | "none";
 
 type BotActionConfig = {
-  /** Enables structured actions/tooling. If off, model is instructed not to emit tool calls. */
   actionsEnabled?: boolean;
-
-  /** Where to POST structured actions (e.g. CRM / Zapier / Make / custom API) */
   webhookUrl?: string;
-
-  /** Optional static header, e.g. `Authorization: Bearer ...` */
   webhookAuthHeader?: string;
-
-  /** Optional shared secret included as `x-chat-platform-signature` (HMAC-like simple token) */
   webhookSecret?: string;
-
-  /** Allowed action types the model can request */
   allowedActionTypes?: ActionType[];
 };
 
 type RateLimitConfig = {
-  /** Requests per window per IP+botId */
-  limit?: number;
-  /** Window seconds */
+  limit?: number; // requests per window per IP+botId
   windowSeconds?: number;
+};
+
+type DailyBudgetConfig = {
+  /**
+   * Hard stop: max chat requests per calendar day (UTC) for this bot.
+   * When exceeded, /api/chat returns 429 with BUDGET_EXCEEDED.
+   */
+  maxRequestsPerDay?: number;
+
+  /**
+   * Soft-ish stop: max “estimated tokens” per day.
+   * If AI returns usage.total_tokens we’ll use that; otherwise we estimate.
+   */
+  maxTokensPerDay?: number;
 };
 
 type BotConfig = {
@@ -60,7 +96,15 @@ type BotConfig = {
   model?: string;
   maxTokens?: number;
 
+  /** Strongly recommended: lock widget use to your site(s). */
   allowedOrigins?: string[];
+
+  /**
+   * Optional: if set, /api/chat requires either:
+   * - header: x-bot-key: <botKey>
+   * - or body: { botKey: "<botKey>" }
+   */
+  botKey?: string;
 
   /** Lead gen behavior */
   leadMode?: LeadMode;
@@ -80,11 +124,14 @@ type BotConfig = {
   ragEmbeddingModel?: string;
 
   /** Guardrails */
-  maxTurns?: number; // max messages in a request (after trimming)
+  maxTurns?: number;
   maxCharsPerMessage?: number;
 
   /** Per-bot rate limit override */
   rateLimit?: RateLimitConfig;
+
+  /** Per-bot daily budgets (hard stops) */
+  dailyBudget?: DailyBudgetConfig;
 
   /** Optional automation/actions support */
   actions?: BotActionConfig;
@@ -96,14 +143,11 @@ type BotConfig = {
 type ChatOk = {
   ok: true;
   message: string;
-  /** Back-compat alias for older widget */
   reply: string;
   raw?: unknown;
   action?: {
     type: ActionType;
-    /** For open_contact */
     contactUrl?: string;
-    /** Arbitrary payload for integrations */
     payload?: any;
   };
   requestId: string;
@@ -119,7 +163,6 @@ type ChatErr = {
 /** ===== Utilities ===== */
 
 function uid() {
-  // requestId only (not crypto-critical)
   return `${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
@@ -187,7 +230,6 @@ function sanitizeOrigins(origins: unknown, max = 25) {
     if (!s) continue;
     try {
       const u = new URL(s);
-      // Normalize to origin only
       out.push(u.origin);
       if (out.length >= max) break;
     } catch {
@@ -197,9 +239,15 @@ function sanitizeOrigins(origins: unknown, max = 25) {
   return Array.from(new Set(out));
 }
 
+/**
+ * IMPORTANT:
+ * - If allowedOrigins is configured => strict allowlist
+ * - If NOT configured => permissive (keeps backward compatibility),
+ *   but you should configure it for real deployments.
+ */
 function isOriginAllowed(origin: string, allowedOrigins: string[] | undefined) {
   if (!origin) return false;
-  if (!allowedOrigins || !allowedOrigins.length) return true; // permissive default if not configured
+  if (!allowedOrigins || !allowedOrigins.length) return true;
   try {
     const o = new URL(origin).origin;
     return allowedOrigins.includes(o);
@@ -214,11 +262,31 @@ function clampInt(n: unknown, def: number, min: number, max: number) {
   return Math.max(min, Math.min(max, Math.trunc(x)));
 }
 
+function safeJsonParse(s: string) {
+  try {
+    return JSON.parse(s);
+  } catch {
+    return null;
+  }
+}
+
+function stripHtmlToText(html: string) {
+  return html
+    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
+    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 function normalizeActionConfig(v: any): BotActionConfig | undefined {
   if (!v || typeof v !== "object") return undefined;
 
   const allowed = Array.isArray(v.allowedActionTypes)
-    ? (v.allowedActionTypes.filter((t: any) => t === "open_contact" || t === "create_lead" || t === "webhook" || t === "none") as ActionType[])
+    ? (v.allowedActionTypes.filter(
+        (t: any) => t === "open_contact" || t === "create_lead" || t === "webhook" || t === "none"
+      ) as ActionType[])
     : undefined;
 
   const webhookUrl = typeof v.webhookUrl === "string" ? v.webhookUrl.trim() : "";
@@ -241,6 +309,13 @@ function normalizeActionConfig(v: any): BotActionConfig | undefined {
   };
 }
 
+function normalizeDailyBudget(v: any, existing?: DailyBudgetConfig): DailyBudgetConfig | undefined {
+  if (!v && !existing) return undefined;
+  const maxRequestsPerDay = clampInt(v?.maxRequestsPerDay, existing?.maxRequestsPerDay ?? 300, 0, 100000);
+  const maxTokensPerDay = clampInt(v?.maxTokensPerDay, existing?.maxTokensPerDay ?? 0, 0, 50000000);
+  return { maxRequestsPerDay, maxTokensPerDay };
+}
+
 function normalizeConfig(incoming: any, existing?: BotConfig): BotConfig {
   const botId = typeof incoming?.botId === "string" ? incoming.botId.trim() : "";
   if (!botId) throw new Error("Missing botId");
@@ -248,69 +323,76 @@ function normalizeConfig(incoming: any, existing?: BotConfig): BotConfig {
   const cfg: BotConfig = {
     botId,
     schemaVersion: 2,
+
     siteName: typeof incoming?.siteName === "string" ? incoming.siteName.trim() : existing?.siteName,
     contactUrl: typeof incoming?.contactUrl === "string" ? incoming.contactUrl.trim() : existing?.contactUrl,
     tone: typeof incoming?.tone === "string" ? incoming.tone.trim() : existing?.tone,
 
     model: typeof incoming?.model === "string" ? incoming.model.trim() : existing?.model,
-    maxTokens: clampInt(incoming?.maxTokens, existing?.maxTokens ?? 512, 64, 2048),
+    maxTokens: clampInt(incoming?.maxTokens, existing?.maxTokens ?? 512, 64, GLOBAL_MAX_TOKENS),
 
     allowedOrigins: sanitizeOrigins(incoming?.allowedOrigins ?? existing?.allowedOrigins),
 
-    leadMode: (incoming?.leadMode === "soft" || incoming?.leadMode === "balanced" || incoming?.leadMode === "direct")
-      ? incoming.leadMode
-      : (existing?.leadMode ?? "balanced"),
+    botKey: typeof incoming?.botKey === "string" ? incoming.botKey.trim() : existing?.botKey,
+
+    leadMode:
+      incoming?.leadMode === "soft" || incoming?.leadMode === "balanced" || incoming?.leadMode === "direct"
+        ? incoming.leadMode
+        : existing?.leadMode ?? "balanced",
     qualifyingQuestions: Array.isArray(incoming?.qualifyingQuestions)
-      ? incoming.qualifyingQuestions.filter((x: any) => typeof x === "string").map((s: string) => s.trim()).filter(Boolean).slice(0, 6)
+      ? incoming.qualifyingQuestions
+          .filter((x: any) => typeof x === "string")
+          .map((s: string) => s.trim())
+          .filter(Boolean)
+          .slice(0, 6)
       : existing?.qualifyingQuestions,
 
     knowledge: typeof incoming?.knowledge === "string" ? incoming.knowledge : existing?.knowledge,
 
     knowledgeUrls: sanitizeUrlList(incoming?.knowledgeUrls ?? existing?.knowledgeUrls),
-    ragEnabled: typeof incoming?.ragEnabled === "boolean" ? incoming.ragEnabled : (existing?.ragEnabled ?? false),
-    ragMaxUrlsPerRequest: clampInt(incoming?.ragMaxUrlsPerRequest, existing?.ragMaxUrlsPerRequest ?? 2, 0, 10),
+    ragEnabled: typeof incoming?.ragEnabled === "boolean" ? incoming.ragEnabled : existing?.ragEnabled ?? false,
+    ragMode: incoming?.ragMode === "simple" || incoming?.ragMode === "embed" ? incoming.ragMode : existing?.ragMode,
+    ragMaxUrlsPerRequest: clampInt(
+      incoming?.ragMaxUrlsPerRequest,
+      existing?.ragMaxUrlsPerRequest ?? 2,
+      0,
+      GLOBAL_RAG_MAX_URLS
+    ),
+    ragTopKChunks: clampInt(incoming?.ragTopKChunks, existing?.ragTopKChunks ?? 4, 1, GLOBAL_RAG_MAX_TOPK),
+    ragChunkChars: clampInt(incoming?.ragChunkChars, existing?.ragChunkChars ?? 1200, 300, GLOBAL_RAG_MAX_CHUNK_CHARS),
+    ragCacheTtlSeconds: clampInt(incoming?.ragCacheTtlSeconds, existing?.ragCacheTtlSeconds ?? 86400, 60, 7 * 86400),
+    ragEmbeddingModel:
+      typeof incoming?.ragEmbeddingModel === "string"
+        ? incoming.ragEmbeddingModel.trim()
+        : existing?.ragEmbeddingModel,
 
-    maxTurns: clampInt(incoming?.maxTurns, existing?.maxTurns ?? 20, 4, 40),
-    maxCharsPerMessage: clampInt(incoming?.maxCharsPerMessage, existing?.maxCharsPerMessage ?? 4000, 200, 12000),
+    maxTurns: clampInt(incoming?.maxTurns, existing?.maxTurns ?? 20, 4, GLOBAL_MAX_TURNS),
+    maxCharsPerMessage: clampInt(
+      incoming?.maxCharsPerMessage,
+      existing?.maxCharsPerMessage ?? 4000,
+      200,
+      GLOBAL_MAX_CHARS_PER_MESSAGE
+    ),
 
     rateLimit: {
       limit: clampInt(incoming?.rateLimit?.limit, existing?.rateLimit?.limit ?? 12, 1, 120),
       windowSeconds: clampInt(incoming?.rateLimit?.windowSeconds, existing?.rateLimit?.windowSeconds ?? 60, 10, 3600),
     },
 
+    dailyBudget: normalizeDailyBudget(incoming?.dailyBudget, existing?.dailyBudget),
+
     actions: normalizeActionConfig(incoming?.actions ?? existing?.actions),
   };
 
-  // Reasonable defaults
   if (!cfg.contactUrl) cfg.contactUrl = "/contact";
   if (!cfg.siteName) cfg.siteName = cfg.botId;
 
   return cfg;
 }
 
-function stripHtmlToText(html: string) {
-  // A simple, low-risk stripper (not a full parser)
-  return html
-    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function safeJsonParse(s: string) {
-  try {
-    return JSON.parse(s);
-  } catch {
-    return null;
-  }
-}
-
 /** ===== Rate limiting ===== */
 
 function ipFromReq(req: Request) {
-  // Cloudflare header
   const ip = getHeader(req, "cf-connecting-ip") || getHeader(req, "x-forwarded-for");
   return (ip || "").split(",")[0].trim() || "unknown";
 }
@@ -326,14 +408,93 @@ async function checkRateLimit(env: Env, botId: string, req: Request, cfg?: BotCo
 
   if (current >= limit) return { ok: false as const, limit, windowSeconds };
 
-  // KV has no atomic increment, but this is "good enough" for lightweight abuse control.
-  await env.KB_CACHE.put(key, String(current + 1), { expirationTtl: windowSeconds + 5 });
+  await env.KB_CACHE.put(key, String(current + 1), { expirationTtl: windowSeconds + 10 });
   return { ok: true as const, limit, windowSeconds };
+}
+
+/** ===== Daily budgets (hard stops) ===== */
+
+function utcDayKey(ts = Date.now()) {
+  const d = new Date(ts);
+  const yyyy = d.getUTCFullYear();
+  const mm = String(d.getUTCMonth() + 1).padStart(2, "0");
+  const dd = String(d.getUTCDate()).padStart(2, "0");
+  return `${yyyy}${mm}${dd}`; // e.g. 20260221
+}
+
+type BudgetState = { requests: number; tokens: number };
+
+async function getBudgetState(env: Env, botId: string, dayKey: string): Promise<BudgetState> {
+  const key = `${BUDGET_KEY_PREFIX}:${dayKey}:${botId}`;
+  const raw = await env.KB_CACHE.get(key);
+  const parsed = raw ? safeJsonParse(raw) : null;
+  const requests = Number((parsed as any)?.requests ?? 0) || 0;
+  const tokens = Number((parsed as any)?.tokens ?? 0) || 0;
+  return { requests, tokens };
+}
+
+async function putBudgetState(env: Env, botId: string, dayKey: string, state: BudgetState) {
+  const key = `${BUDGET_KEY_PREFIX}:${dayKey}:${botId}`;
+  // expire after 3 days
+  await env.KB_CACHE.put(key, JSON.stringify(state), { expirationTtl: 3 * 86400 });
+}
+
+async function checkDailyBudget(env: Env, cfg: BotConfig, requestId: string) {
+  const b = cfg.dailyBudget;
+  if (!b) return { ok: true as const };
+
+  const maxReq = clampInt(b.maxRequestsPerDay, 0, 0, 100000000);
+  const maxTok = clampInt(b.maxTokensPerDay, 0, 0, 100000000);
+
+  if (maxReq <= 0 && maxTok <= 0) {
+    // no budgets configured (not recommended)
+    return { ok: true as const };
+  }
+
+  const dayKey = utcDayKey();
+  const state = await getBudgetState(env, cfg.botId, dayKey);
+
+  if (maxReq > 0 && state.requests >= maxReq) {
+    return {
+      ok: false as const,
+      error: "BUDGET_EXCEEDED",
+      detail: `Daily request budget exceeded for botId "${cfg.botId}".`,
+      dayKey,
+      requestId,
+    };
+  }
+
+  if (maxTok > 0 && state.tokens >= maxTok) {
+    return {
+      ok: false as const,
+      error: "BUDGET_EXCEEDED",
+      detail: `Daily token budget exceeded for botId "${cfg.botId}".`,
+      dayKey,
+      requestId,
+    };
+  }
+
+  return { ok: true as const, dayKey, state, maxReq, maxTok };
+}
+
+async function incrementDailyBudget(
+  env: Env,
+  cfg: BotConfig,
+  dayKey: string,
+  state: BudgetState,
+  addRequests: number,
+  addTokens: number
+) {
+  const next: BudgetState = {
+    requests: Math.max(0, state.requests + Math.max(0, addRequests)),
+    tokens: Math.max(0, state.tokens + Math.max(0, addTokens)),
+  };
+  await putBudgetState(env, cfg.botId, dayKey, next);
 }
 
 /** ===== Knowledge / RAG ===== */
 
-async function getCachedUrlText(env: Env, url: string, ttlSeconds = 60 * 60, force = false) {
+async function getCachedUrlText(env: Env, url: string, ttlSeconds = 3600, force = false) {
   const cacheKey = `kb:${url}`;
   if (!force) {
     const cached = await env.KB_CACHE.get(cacheKey);
@@ -342,7 +503,7 @@ async function getCachedUrlText(env: Env, url: string, ttlSeconds = 60 * 60, for
 
   const res = await fetch(url, {
     method: "GET",
-    headers: { "User-Agent": "EVAVO-ChatPlatform/1.0 (+https://evavo-studio.com)" },
+    headers: { "User-Agent": "EVAVO-ChatPlatform/1.0" },
   });
 
   if (!res.ok) throw new Error(`Fetch failed ${res.status} for ${url}`);
@@ -362,12 +523,10 @@ function selectRelevantUrls(question: string, urls: string[], max: number) {
   const scored = urls.map((u) => {
     const p = u.toLowerCase();
     let score = 0;
-    // Heuristics: matching path terms gives a boost
     for (const term of q.split(/\W+/g).filter(Boolean).slice(0, 20)) {
       if (term.length < 3) continue;
       if (p.includes(term)) score += 2;
     }
-    // Common boosts
     if (q.includes("price") || q.includes("pricing") || q.includes("cost")) if (p.includes("pricing")) score += 5;
     if (q.includes("contact") || q.includes("quote")) if (p.includes("contact")) score += 5;
     if (q.includes("privacy")) if (p.includes("privacy")) score += 5;
@@ -379,18 +538,17 @@ function selectRelevantUrls(question: string, urls: string[], max: number) {
   return scored.slice(0, max).map((s) => s.u);
 }
 
-// ===== RAG (simple vs embed) =====
-
-function chunkText(text: string, chunkChars: number) {
+function chunkText(text: string, chunkChars: number, maxChunks: number) {
   const t = (text || "").trim();
   if (!t) return [];
-  const size = Math.max(200, Math.min(5000, chunkChars || 1200));
+  const size = Math.max(300, Math.min(GLOBAL_RAG_MAX_CHUNK_CHARS, chunkChars || 1200));
   const chunks: string[] = [];
   for (let i = 0; i < t.length; i += size) {
     const part = t.slice(i, i + size).trim();
-    if (part.length >= 50) chunks.push(part);
+    if (part.length >= 80) chunks.push(part);
+    if (chunks.length >= maxChunks) break;
   }
-  return chunks.slice(0, 120);
+  return chunks;
 }
 
 async function sha256Hex(input: string) {
@@ -416,18 +574,16 @@ function cosineSim(a: number[], b: number[]) {
 }
 
 async function embedText(env: Env, model: string, text: string): Promise<number[] | null> {
+  // Try two common payload shapes
   try {
-    // Cloudflare AI embeddings commonly accept { text } or { texts: [...] } depending on model.
-    const anyAI: any = env.AI as any;
-    const res1 = await anyAI.run(model, { text });
-    const vec = (res1 && (res1.data || res1.embedding || res1.vector || res1[0])) as any;
+    const res1 = await (env.AI as any).run(model, { text });
+    const vec = (res1 && ((res1.data as any) || (res1.embedding as any) || (res1.vector as any) || (res1[0] as any))) as any;
     if (Array.isArray(vec) && vec.length) return vec.map((n: any) => Number(n));
   } catch {}
 
   try {
-    const anyAI: any = env.AI as any;
-    const res2 = await anyAI.run(model, { texts: [text] });
-    const vec = (res2 && (res2.data?.[0] || res2.embeddings?.[0] || res2[0])) as any;
+    const res2 = await (env.AI as any).run(model, { texts: [text] });
+    const vec = (res2 && ((res2.data?.[0] as any) || (res2.embeddings?.[0] as any) || (res2[0] as any))) as any;
     if (Array.isArray(vec) && vec.length) return vec.map((n: any) => Number(n));
   } catch {}
 
@@ -447,24 +603,33 @@ async function getCachedEmbedding(env: Env, model: string, text: string, ttlSeco
 
   const vec = await embedText(env, model, text);
   if (!vec) return null;
+
   try {
     await env.KB_CACHE.put(key, JSON.stringify(vec), { expirationTtl: ttlSeconds });
   } catch {}
+
   return vec;
+}
+
+function truncateTextToLimit(s: string, maxChars: number) {
+  const t = (s || "").toString();
+  if (t.length <= maxChars) return t;
+  return t.slice(0, maxChars - 1) + "…";
 }
 
 async function buildRagBlock(env: Env, cfg: BotConfig, question: string) {
   const urls = Array.isArray(cfg.knowledgeUrls) ? cfg.knowledgeUrls.filter(Boolean) : [];
   if (!cfg.ragEnabled || !urls.length) return "";
 
-  const maxUrls = Math.max(1, Math.min(5, Number(cfg.ragMaxUrlsPerRequest ?? 2)));
-  const ttl = Math.max(60, Math.min(7 * 86400, Number(cfg.ragCacheTtlSeconds ?? 86400)));
-  const mode = (cfg.ragMode || "simple") as any;
+  const maxUrls = clampInt(cfg.ragMaxUrlsPerRequest, 2, 0, GLOBAL_RAG_MAX_URLS);
+  if (maxUrls <= 0) return "";
+
+  const ttl = clampInt(cfg.ragCacheTtlSeconds, 86400, 60, 7 * 86400);
+  const mode = (cfg.ragMode || "simple") as "simple" | "embed";
 
   const chosen = selectRelevantUrls(question, urls, maxUrls);
   if (!chosen.length) return "";
 
-  // Fetch text (cached)
   const texts: Array<{ url: string; text: string }> = [];
   for (const u of chosen) {
     try {
@@ -475,30 +640,31 @@ async function buildRagBlock(env: Env, cfg: BotConfig, question: string) {
   if (!texts.length) return "";
 
   if (mode !== "embed") {
-    // Simple: include the top pages as context blobs
     const blocks = texts
       .map(({ url, text }) => `SOURCE: ${url}\n${text.slice(0, 2800)}`)
       .join("\n\n---\n\n");
-    return `\n\nUse these sources as context (quote/paraphrase carefully; do not claim facts not in them):\n\n${blocks}`;
+    return `\n\nWebsite sources (use only these for factual claims; if not present, say you’re unsure and link the relevant page):\n\n${blocks}`;
   }
 
-  // Embed mode: chunk → embed → topK
+  // Embed mode (more expensive) — capped hard
   const embedModel = (cfg.ragEmbeddingModel || "@cf/baai/bge-base-en-v1.5").trim();
-  const topK = Math.max(1, Math.min(10, Number(cfg.ragTopKChunks ?? 4)));
-  const chunkChars = Math.max(300, Math.min(5000, Number(cfg.ragChunkChars ?? 1200)));
+  const topK = clampInt(cfg.ragTopKChunks, 4, 1, GLOBAL_RAG_MAX_TOPK);
+  const chunkChars = clampInt(cfg.ragChunkChars, 1200, 300, GLOBAL_RAG_MAX_CHUNK_CHARS);
 
   const qVec = await getCachedEmbedding(env, embedModel, question.slice(0, 2000), ttl);
   if (!qVec) {
-    // Fallback if embeddings unavailable
+    // fallback to simple
     const blocks = texts
       .map(({ url, text }) => `SOURCE: ${url}\n${text.slice(0, 2800)}`)
       .join("\n\n---\n\n");
-    return `\n\nUse these sources as context (embeddings unavailable; fallback):\n\n${blocks}`;
+    return `\n\nWebsite sources (embeddings unavailable; fallback to raw excerpts):\n\n${blocks}`;
   }
 
   const scoredChunks: Array<{ url: string; chunk: string; score: number }> = [];
+
   for (const { url, text } of texts) {
-    for (const chunk of chunkText(text, chunkChars)) {
+    const chunks = chunkText(text, chunkChars, GLOBAL_RAG_EMBED_MAX_CHUNKS_PER_PAGE);
+    for (const chunk of chunks) {
       const cVec = await getCachedEmbedding(env, embedModel, chunk, ttl);
       if (!cVec) continue;
       const score = cosineSim(qVec, cVec);
@@ -514,7 +680,7 @@ async function buildRagBlock(env: Env, cfg: BotConfig, question: string) {
     .map((p) => `SOURCE: ${p.url}\nRELEVANCE: ${p.score.toFixed(3)}\n${p.chunk}`)
     .join("\n\n---\n\n");
 
-  return `\n\nUse these sources as context (ranked excerpts; cite as “per site info” not as a quote):\n\n${blocks}`;
+  return `\n\nWebsite sources (ranked excerpts; do not invent details; if pricing/SLAs not shown here, say so and link the relevant page):\n\n${blocks}`;
 }
 
 /** ===== Prompting / Actions ===== */
@@ -529,13 +695,17 @@ function buildSystemPrompt(cfg: BotConfig) {
       ? `Qualifying questions you may ask (only when needed, 1–2 at a time):\n- ${qq.join("\n- ")}\n`
       : "";
 
-  const actions = cfg.actions?.actionsEnabled ? true : false;
+  const actionsEnabled = cfg.actions?.actionsEnabled ? true : false;
   const allowedActions = cfg.actions?.allowedActionTypes?.length
     ? cfg.actions.allowedActionTypes
-    : (actions ? (["open_contact", "create_lead", "webhook", "none"] as ActionType[]) : (["none"] as ActionType[]));
+    : actionsEnabled
+      ? (["open_contact", "create_lead", "webhook", "none"] as ActionType[])
+      : (["none"] as ActionType[]);
 
-  const actionBlock = actions
-    ? `\nActions:\nYou may optionally return a JSON object instead of plain text.\nAllowed action types: ${allowedActions.join(", ")}.\nJSON format:\n{\n  "message": "string (human reply)",\n  "action": {\n    "type": "open_contact|create_lead|webhook|none",\n    "payload": { /* minimal structured data */ }\n  }\n}\nRules:\n- Prefer plain text unless an action will materially help.\n- Never invent phone numbers, emails, prices, or SLAs.\n- For "open_contact", keep payload as { "summary": "...", "email": "", "name": "" } when available.\n- For "create_lead" or "webhook", include only user-provided details.\n`
+  const actionBlock = actionsEnabled
+    ? `\nActions:\nYou may optionally return a JSON object instead of plain text.\nAllowed action types: ${allowedActions.join(
+        ", "
+      )}.\nJSON format:\n{\n  "message": "string (human reply)",\n  "action": {\n    "type": "open_contact|create_lead|webhook|none",\n    "payload": { /* minimal structured data */ }\n  }\n}\nRules:\n- Prefer plain text unless an action will materially help.\n- Only include user-provided details in payload.\n- Never invent phone numbers, emails, addresses, prices, SLAs, compliance claims, or guarantees.\n`
     : `\nActions:\nDo NOT output JSON. Only output normal text.\n`;
 
   const leadStyle =
@@ -545,12 +715,20 @@ function buildSystemPrompt(cfg: BotConfig) {
         ? "Guide toward a quote once you have minimal scoping info; politely ask qualifying questions."
         : "Answer and educate, then offer a quote/next step if relevant.";
 
+  const truthRules = [
+    "Truthfulness rules:",
+    "- Do NOT invent numbers (prices, discounts, minimums), SLAs, certifications, or legal/compliance statements.",
+    "- If asked for pricing and exact figures are not in the provided website sources, say pricing depends on scope and link the pricing page.",
+    "- If asked about compliance/certs (ISO, SOC2, etc.) and it is not in the sources, say you can’t confirm from the site and suggest contacting the team.",
+    "- If unsure, say so and ask a short clarifying question or point to the relevant page.",
+    "- Keep replies concise and practical.",
+  ].join("\n");
+
   return [
     `You are the website assistant for "${cfg.siteName || cfg.botId}".`,
     `Tone: ${tone}.`,
     `Behavior: ${leadStyle}`,
-    `Be truthful, avoid assumptions, be brief, and use bullet points when helpful.`,
-    `When unsure, say what you do know and suggest the best next question.`,
+    truthRules,
     qBlock,
     actionBlock,
   ]
@@ -561,7 +739,6 @@ function buildSystemPrompt(cfg: BotConfig) {
 function extractActionFromModelOutput(rawText: string): { message: string; action?: { type: ActionType; payload?: any } } {
   const trimmed = (rawText || "").trim();
 
-  // Try JSON only if it looks like JSON
   if (trimmed.startsWith("{") && trimmed.endsWith("}")) {
     const parsed = safeJsonParse(trimmed);
     if (parsed && typeof parsed === "object") {
@@ -590,13 +767,11 @@ async function maybeFireWebhook(env: Env, cfg: BotConfig, action: { type: Action
     "x-chat-platform-botid": cfg.botId,
     "x-chat-platform-requestid": requestId,
   };
+
   if (a.webhookAuthHeader) {
     const idx = a.webhookAuthHeader.indexOf(":");
-    if (idx > 0) {
-      headers[a.webhookAuthHeader.slice(0, idx).trim()] = a.webhookAuthHeader.slice(idx + 1).trim();
-    } else {
-      headers["Authorization"] = a.webhookAuthHeader;
-    }
+    if (idx > 0) headers[a.webhookAuthHeader.slice(0, idx).trim()] = a.webhookAuthHeader.slice(idx + 1).trim();
+    else headers["Authorization"] = a.webhookAuthHeader;
   }
   if (a.webhookSecret) headers["x-chat-platform-signature"] = a.webhookSecret;
 
@@ -612,11 +787,11 @@ async function maybeFireWebhook(env: Env, cfg: BotConfig, action: { type: Action
       }),
     });
   } catch {
-    // Never fail chat due to webhook issues.
+    // Never fail chat due to webhook issues
   }
 }
 
-/** ===== Handlers ===== */
+/** ===== Admin auth ===== */
 
 async function requireAdmin(req: Request, env: Env) {
   const token = parseBearerToken(req);
@@ -624,6 +799,8 @@ async function requireAdmin(req: Request, env: Env) {
   if (!expected) throw new Error("ADMIN_TOKEN is not set in worker secrets.");
   if (!token || token !== expected) throw new Error("UNAUTHORIZED");
 }
+
+/** ===== Admin handlers ===== */
 
 async function handleAdminUpsert(req: Request, env: Env, requestId: string) {
   await requireAdmin(req, env);
@@ -647,15 +824,16 @@ async function handleAdminUpsert(req: Request, env: Env, requestId: string) {
   }
 
   await env.BOT_CONFIG.put(`cfg:${botId}`, JSON.stringify(cfg));
+  await recordBotId(env, botId);
 
-  return json(200, { ok: true, cfg, requestId }, requestId ? { "x-request-id": requestId } : undefined);
+  return json(200, { ok: true, cfg, requestId }, { "x-request-id": requestId });
 }
 
 async function handleAdminGet(req: Request, env: Env, requestId: string) {
   await requireAdmin(req, env);
 
   const body = await req.json().catch(() => null);
-  const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
+  const botId = typeof (body as any)?.botId === "string" ? (body as any).botId.trim() : "";
   if (!botId) return json(400, { ok: false, error: "BAD_REQUEST", detail: "Missing botId.", requestId });
 
   const raw = await env.BOT_CONFIG.get(`cfg:${botId}`);
@@ -666,11 +844,9 @@ async function handleAdminGet(req: Request, env: Env, requestId: string) {
 
 async function handleAdminList(req: Request, env: Env, requestId: string) {
   await requireAdmin(req, env);
-
-  // KV does not support list by prefix in Workers KV in all plans via runtime binding.
-  // We store a separate index of bot ids.
   const raw = await env.BOT_CONFIG.get("cfg:index");
-  const ids = Array.isArray(safeJsonParse(raw || "[]")) ? (safeJsonParse(raw || "[]") as string[]) : [];
+  const parsed = safeJsonParse(raw || "[]");
+  const ids = Array.isArray(parsed) ? (parsed as string[]) : [];
   return json(200, { ok: true, botIds: ids, requestId });
 }
 
@@ -680,14 +856,14 @@ async function recordBotId(env: Env, botId: string) {
   const ids = Array.isArray(parsed) ? (parsed as string[]) : [];
   if (!ids.includes(botId)) {
     ids.push(botId);
-    await env.BOT_CONFIG.put("cfg:index", JSON.stringify(ids.slice(-200)));
+    await env.BOT_CONFIG.put("cfg:index", JSON.stringify(ids.slice(-500)));
   }
 }
 
 async function handleKbRefresh(req: Request, env: Env, requestId: string) {
   await requireAdmin(req, env);
   const body = await req.json().catch(() => null);
-  const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
+  const botId = typeof (body as any)?.botId === "string" ? (body as any).botId.trim() : "";
   if (!botId) return json(400, { ok: false, error: "BAD_REQUEST", detail: "Missing botId.", requestId });
 
   const raw = await env.BOT_CONFIG.get(`cfg:${botId}`);
@@ -697,16 +873,32 @@ async function handleKbRefresh(req: Request, env: Env, requestId: string) {
   const urls = sanitizeUrlList(cfg?.knowledgeUrls);
   if (!urls.length) return json(200, { ok: true, refreshed: 0, requestId });
 
+  const ttl = clampInt(cfg.ragCacheTtlSeconds, 86400, 60, 7 * 86400);
+
   let refreshed = 0;
   for (const u of urls.slice(0, 30)) {
     try {
-      await getCachedUrlText(env, u, 60 * 60, true);
+      await getCachedUrlText(env, u, ttl, true);
       refreshed++;
     } catch {
-      // ignore failures
+      // ignore
     }
   }
   return json(200, { ok: true, refreshed, requestId });
+}
+
+/** ===== Chat handler ===== */
+
+function getBotKeyFromReq(req: Request, body: any) {
+  const headerKey = getHeader(req, "x-bot-key").trim();
+  const bodyKey = typeof body?.botKey === "string" ? body.botKey.trim() : "";
+  return headerKey || bodyKey;
+}
+
+function estimateTokensFromText(s: string) {
+  // Very rough: ~4 chars per token for English
+  const chars = (s || "").length;
+  return Math.max(1, Math.ceil(chars / 4));
 }
 
 async function handleChat(req: Request, env: Env, requestId: string) {
@@ -718,6 +910,8 @@ async function handleChat(req: Request, env: Env, requestId: string) {
 
   const botId = typeof (body as any).botId === "string" ? (body as any).botId.trim() : "";
   const messages = Array.isArray((body as any).messages) ? ((body as any).messages as any[]) : [];
+  const debug = !!(body as any).debug;
+
   if (!botId || !messages.length) {
     const out: ChatErr = { ok: false, error: "BAD_REQUEST", detail: "Expected { botId, messages[] }.", requestId };
     return json(400, out);
@@ -730,17 +924,26 @@ async function handleChat(req: Request, env: Env, requestId: string) {
   }
   const cfg = safeJsonParse(rawCfg) as BotConfig;
 
+  // Optional bot key gate (strong cost control)
+  if (cfg.botKey && cfg.botKey.trim()) {
+    const provided = getBotKeyFromReq(req, body);
+    if (!provided || provided !== cfg.botKey.trim()) {
+      const out: ChatErr = { ok: false, error: "UNAUTHORIZED", detail: "Missing/invalid botKey.", requestId };
+      return json(401, out);
+    }
+  }
+
   // CORS/Origin checks
   const origin = getRequestOrigin(req);
   if (origin && !isOriginAllowed(origin, cfg.allowedOrigins)) {
     const out: ChatErr = { ok: false, error: "FORBIDDEN_ORIGIN", detail: "Origin not allowed.", requestId };
     return json(403, out, {
       "Access-Control-Allow-Origin": "null",
-      "Vary": "Origin",
+      Vary: "Origin",
     });
   }
 
-  // Lightweight per-IP rate limiting
+  // Per-IP rate limit
   const rl = await checkRateLimit(env, botId, req, cfg);
   if (!rl.ok) {
     const out: ChatErr = {
@@ -750,13 +953,23 @@ async function handleChat(req: Request, env: Env, requestId: string) {
       requestId,
     };
     return json(429, out, {
-      ...(origin ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" } : {}),
+      ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
       "Retry-After": String(rl.windowSeconds),
     });
   }
 
-  const maxTurns = cfg.maxTurns ?? 20;
-  const maxChars = cfg.maxCharsPerMessage ?? 4000;
+  // Per-bot daily budgets (hard stop)
+  const budgetCheck = await checkDailyBudget(env, cfg, requestId);
+  if (!budgetCheck.ok) {
+    const out: ChatErr = { ok: false, error: budgetCheck.error, detail: budgetCheck.detail, requestId };
+    return json(429, out, {
+      ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+      "Retry-After": "3600",
+    });
+  }
+
+  const maxTurns = clampInt(cfg.maxTurns, 20, 4, GLOBAL_MAX_TURNS);
+  const maxChars = clampInt(cfg.maxCharsPerMessage, 4000, 200, GLOBAL_MAX_CHARS_PER_MESSAGE);
 
   const trimmed: ChatMessage[] = [];
   for (const m of messages.slice(-maxTurns)) {
@@ -775,43 +988,39 @@ async function handleChat(req: Request, env: Env, requestId: string) {
 
   const systemPrompt = buildSystemPrompt(cfg);
 
-  // RAG: Select a small set of allow-listed URLs based on last user message
-  let ragBlock = "";
-  if (cfg.ragEnabled && cfg.knowledgeUrls?.length) {
-    const lastUser = [...trimmed].reverse().find((m) => m.role === "user")?.content || "";
-    const maxUrls = cfg.ragMaxUrlsPerRequest ?? 2;
-    const chosen = selectRelevantUrls(lastUser, cfg.knowledgeUrls, maxUrls);
+  const lastUser = [...trimmed].reverse().find((m) => m.role === "user")?.content || "";
+  const ragBlock = await buildRagBlock(env, cfg, lastUser);
+  const knowledge =
+    typeof cfg.knowledge === "string" && cfg.knowledge.trim() ? `\nWebsite notes:\n${cfg.knowledge.trim()}\n` : "";
 
-    if (chosen.length) {
-      const chunks: string[] = [];
-      for (const u of chosen) {
-        try {
-          const txt = await getCachedUrlText(env, u, 60 * 60);
-          chunks.push(`SOURCE: ${u}\n${txt}`);
-        } catch {
-          // ignore failures
-        }
-      }
-      if (chunks.length) {
-        ragBlock =
-          `\nYou may use the following website sources. Cite by URL if relevant.\n` +
-          chunks.map((c) => `---\n${c}\n`).join("\n");
+  // Hard cap system content size
+  const systemContent = truncateTextToLimit(systemPrompt + knowledge + ragBlock, GLOBAL_MAX_SYSTEM_CHARS);
+
+  const input: ChatMessage[] = [{ role: "system", content: systemContent }, ...trimmed];
+
+  // Hard cap total input size (defense in depth)
+  const totalInputChars = input.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+  if (totalInputChars > GLOBAL_MAX_TOTAL_INPUT_CHARS) {
+    // Keep system, keep last ~N messages until within limit
+    const kept: ChatMessage[] = [input[0]];
+    for (let i = input.length - 1; i >= 1; i--) {
+      kept.splice(1, 0, input[i]);
+      const sz = kept.reduce((sum, m) => sum + (m.content?.length || 0), 0);
+      if (sz > GLOBAL_MAX_TOTAL_INPUT_CHARS) {
+        kept.splice(1, 1); // remove the oldest we just inserted
+        break;
       }
     }
+    input.length = 0;
+    input.push(...kept);
   }
 
-  const knowledge = typeof cfg.knowledge === "string" && cfg.knowledge.trim() ? `\nWebsite notes:\n${cfg.knowledge.trim()}\n` : "";
-
-  const input: ChatMessage[] = [
-    { role: "system", content: systemPrompt + knowledge + ragBlock },
-    ...trimmed,
-  ];
-
-  // Model defaults
   const model = cfg.model?.trim() || "@cf/meta/llama-3-8b-instruct";
-  const maxTokens = cfg.maxTokens ?? 512;
+  const maxTokens = clampInt(cfg.maxTokens, 512, 64, GLOBAL_MAX_TOKENS);
 
-  // Call Cloudflare AI
+  // Estimate tokens up-front (for budget accounting if AI doesn't return usage)
+  const estimatedPromptTokens = input.reduce((sum, m) => sum + estimateTokensFromText(m.content), 0);
+
   let aiResult: any;
   try {
     aiResult = await env.AI.run(model, {
@@ -821,43 +1030,88 @@ async function handleChat(req: Request, env: Env, requestId: string) {
   } catch (e: any) {
     const out: ChatErr = { ok: false, error: "AI_ERROR", detail: e?.message || "AI call failed.", requestId };
     return json(502, out, {
-      ...(origin ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" } : {}),
+      ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
     });
   }
 
   const rawText =
     (aiResult?.response && typeof aiResult.response === "string" ? aiResult.response : "") ||
     (aiResult?.result?.response && typeof aiResult.result.response === "string" ? aiResult.result.response : "") ||
+    (aiResult?.output_text && typeof aiResult.output_text === "string" ? aiResult.output_text : "") ||
     "";
 
+  const usage = aiResult?.usage || aiResult?.result?.usage || aiResult?.raw?.usage || null;
+
+  const totalTokensFromModel =
+    typeof (usage as any)?.total_tokens === "number"
+      ? (usage as any).total_tokens
+      : typeof (usage as any)?.totalTokens === "number"
+        ? (usage as any).totalTokens
+        : null;
+
+  const completionTokensEstimate = estimateTokensFromText(rawText);
+  const totalTokensEstimate = totalTokensFromModel ?? estimatedPromptTokens + completionTokensEstimate;
+
+  // Update daily budgets AFTER successful call
+  if (budgetCheck.ok && (budgetCheck as any).dayKey && (budgetCheck as any).state) {
+    await incrementDailyBudget(
+      env,
+      cfg,
+      (budgetCheck as any).dayKey,
+      (budgetCheck as any).state,
+      1,
+      totalTokensEstimate
+    ).catch(() => {});
+  }
+
   const { message, action } = extractActionFromModelOutput(rawText);
+
+  // Enforce allowedActionTypes (server-side safety)
+  let finalAction = action;
+  if (finalAction?.type) {
+    const enabled = !!cfg.actions?.actionsEnabled;
+    const allowed =
+      cfg.actions?.allowedActionTypes?.length
+        ? cfg.actions.allowedActionTypes
+        : enabled
+          ? (["open_contact", "create_lead", "webhook", "none"] as ActionType[])
+          : (["none"] as ActionType[]);
+
+    if (!enabled) {
+      finalAction = undefined;
+    } else if (!allowed.includes(finalAction.type)) {
+      finalAction = { type: "none" };
+    }
+  }
+
   const safeMessage = (message || "").trim() || "Sorry — I couldn’t generate a response.";
 
-  // Fire webhooks if configured and requested
-  if (action?.type) await maybeFireWebhook(env, cfg, action, requestId);
+  if (finalAction?.type) await maybeFireWebhook(env, cfg, finalAction, requestId);
 
   const out: ChatOk = {
     ok: true,
     message: safeMessage,
     reply: safeMessage,
-    raw: aiResult,
-    action: action
+    ...(debug ? { raw: aiResult } : {}),
+    action: finalAction
       ? {
-          type: action.type,
-          contactUrl: action.type === "open_contact" ? (cfg.contactUrl || "/contact") : undefined,
-          payload: action.payload,
+          type: finalAction.type,
+          contactUrl: finalAction.type === "open_contact" ? cfg.contactUrl || "/contact" : undefined,
+          payload: finalAction.payload,
         }
       : undefined,
     requestId,
   };
 
   return json(200, out, {
-    ...(origin ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" } : {}),
-    "Access-Control-Allow-Headers": "Content-Type, Authorization",
+    ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+    "Access-Control-Allow-Headers": "Content-Type, Authorization, x-bot-key",
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "x-request-id": requestId,
   });
 }
+
+/** ===== Router ===== */
 
 export default {
   async fetch(req: Request, env: Env): Promise<Response> {
@@ -871,26 +1125,15 @@ export default {
         status: 204,
         headers: {
           "Cache-Control": "no-store",
-          ...(origin ? { "Access-Control-Allow-Origin": origin, "Vary": "Origin" } : {}),
-          "Access-Control-Allow-Headers": "Content-Type, Authorization",
+          ...(origin ? { "Access-Control-Allow-Origin": origin, Vary: "Origin" } : {}),
+          "Access-Control-Allow-Headers": "Content-Type, Authorization, x-bot-key",
           "Access-Control-Allow-Methods": "POST, OPTIONS",
         },
       });
     }
 
-    // Routing
     try {
-      if (url.pathname === "/admin/upsert" && req.method === "POST") {
-        const res = await handleAdminUpsert(req, env, requestId);
-        // record bot id for list
-        try {
-          const body = await req.clone().json().catch(() => null);
-          const botId = typeof body?.botId === "string" ? body.botId.trim() : "";
-          if (botId) await recordBotId(env, botId);
-        } catch {}
-        return res;
-      }
-
+      if (url.pathname === "/admin/upsert" && req.method === "POST") return await handleAdminUpsert(req, env, requestId);
       if (url.pathname === "/admin/get" && req.method === "POST") return await handleAdminGet(req, env, requestId);
       if (url.pathname === "/admin/list" && req.method === "POST") return await handleAdminList(req, env, requestId);
       if (url.pathname === "/admin/kb/refresh" && req.method === "POST") return await handleKbRefresh(req, env, requestId);
@@ -903,7 +1146,12 @@ export default {
     } catch (e: any) {
       const msg = e?.message || "SERVER_ERROR";
       const status = msg === "UNAUTHORIZED" ? 401 : 500;
-      return json(status, { ok: false, error: msg === "UNAUTHORIZED" ? "UNAUTHORIZED" : "SERVER_ERROR", detail: msg, requestId });
+      return json(status, {
+        ok: false,
+        error: msg === "UNAUTHORIZED" ? "UNAUTHORIZED" : "SERVER_ERROR",
+        detail: msg,
+        requestId,
+      });
     }
   },
 };
