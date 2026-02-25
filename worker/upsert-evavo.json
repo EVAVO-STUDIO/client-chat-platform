@@ -1,0 +1,26 @@
+﻿{
+  "botId": "evavo",
+  "siteName": "EVAVO Studio",
+  "contactUrl": "https://evavo.com.au/contact",
+  "tone": "confident, friendly, modern studio voice; concise; high trust; never invent pricing/SLAs",
+  "allowedOrigins": ["https://evavo.com.au", "https://www.evavo.com.au"],
+  "model": "@cf/meta/llama-3-8b-instruct",
+  "maxTokens": 512,
+  "leadMode": "balanced",
+  "qualifyingQuestions": [
+    "What are you building (website, app, brand, game, AI)?",
+    "Any references you love (sites, studios, aesthetics)?",
+    "Rough timeline + budget range?"
+  ],
+  "ragEnabled": true,
+  "ragMode": "simple",
+  "knowledgeUrls": [
+    "https://evavo.com.au/services",
+    "https://evavo.com.au/work",
+    "https://evavo.com.au/pricing",
+    "https://evavo.com.au/contact"
+  ],
+  "rateLimit": { "limit": 12, "windowSeconds": 60 },
+  "dailyBudget": { "maxRequestsPerDay": 300, "maxTokensPerDay": 0 },
+  "actions": { "actionsEnabled": false, "allowedActionTypes": ["none"] }
+}
