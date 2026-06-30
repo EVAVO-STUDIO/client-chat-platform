@@ -51,6 +51,41 @@ In Admin UI:
 - Admin Token: the secret you set
 - Create/Update bot config
 
+### Fix deprecated Workers AI model for EVA Chat
+
+If the public EVA Chat demo shows an upstream error like:
+
+```text
+This model was deprecated on 2026-05-30. Please use an alternative model.
+```
+
+update the existing `evavo` bot config to a currently supported Workers AI text-generation model.
+Recommended default:
+
+```text
+@cf/meta/llama-3.3-70b-instruct-fp8-fast
+```
+
+Lower-latency alternative:
+
+```text
+@cf/openai/gpt-oss-20b
+```
+
+Run this from the repo root after pulling latest:
+
+```powershell
+cd .\worker
+cmd /c "npm install"
+$env:WORKER_URL="https://client-chat-platform.evavo-studio.workers.dev"
+$env:ADMIN_TOKEN="<your Worker ADMIN_TOKEN>"
+$env:BOT_ID="evavo"
+$env:MODEL="@cf/meta/llama-3.3-70b-instruct-fp8-fast"
+cmd /c "node scripts/update-evavo-model.mjs"
+```
+
+This script calls `/admin/get`, preserves the existing config, changes only `model`, then calls `/admin/upsert`.
+
 ### Bot training / customization (practical)
 
 You have 3 layers of "knowledge":
