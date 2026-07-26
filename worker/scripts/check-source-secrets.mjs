@@ -231,8 +231,10 @@ const focusedConfig = fs.existsSync(focusedConfigPath)
   ? fs.readFileSync(focusedConfigPath, "utf8")
   : "";
 for (const token of [
-  'contract: "client-chat-admin-config-secret-safety-v4-operator-ux"',
+  'contract: "client-chat-admin-config-secret-safety-v5-mutation-receipt"',
   "rawBotKeysReturned: false",
+  "upsertStatusUsesCommittedMutationReceipt: true",
+  "postWriteKvReadRequiredForUpsertStatus: false",
   "unknownStatusDisplayedAsNotConfigured: false",
   "botKeyStatusLocallyRedacted: false",
   "retiredWebhookCredentialsReturned: false",
@@ -248,10 +250,13 @@ const storage = fs.existsSync(storagePath)
   ? fs.readFileSync(storagePath, "utf8")
   : "";
 for (const token of [
-  '"client_chat_runtime_storage_boundary_v3"',
+  '"client_chat_runtime_storage_boundary_v4"',
+  "createBotConfigMutationReceipt",
   "withProtectedBotConfigWrites",
   "withHashedLegacyRateLimitKeys",
   "redactAdminConfigResponse",
+  "upsertBotKeyStatusUsesCommittedMutationReceipt: true",
+  "postWriteKvReadRequiredForUpsertStatus: false",
 ]) {
   if (!storage.includes(token)) {
     errors.push(`runtime storage boundary must require: ${token}`);
@@ -267,7 +272,9 @@ const configDoc = fs.existsSync(configDocPath)
   ? fs.readFileSync(configDocPath, "utf8")
   : "";
 for (const token of [
-  "client_chat_runtime_storage_boundary_v3",
+  "client_chat_runtime_storage_boundary_v4",
+  "## Committed mutation receipt",
+  "does not perform an immediate post-write KV read",
   "botKeyStatus",
   "rl:v2:<sha256>",
   "pseudonymous rather than anonymous",
@@ -296,7 +303,7 @@ for (const token of [
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-tracked-source-secret-safety-v3-config-secrets",
+  contract: "client-chat-platform-tracked-source-secret-safety-v4-mutation-receipt",
   trackedFilesInspected: files.length,
   maximumScannedFileBytes: MAX_SCANNED_FILE_BYTES,
   trackedEnvironmentFilesAllowed: [...ALLOWED_ENV_FILES],
@@ -308,6 +315,8 @@ console.log(JSON.stringify({
   configSecretCheckRequired: true,
   configSecretPrehookRequired: true,
   runtimeStorageBoundaryRequired: true,
+  committedMutationReceiptRequired: true,
+  postWriteKvReadRequired: false,
   completeCheckOrderRequired: true,
   dryRunBundleRequired: true,
   repositoryVisibilityEnforcedBySource: false,
