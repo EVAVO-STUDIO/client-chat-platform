@@ -42,7 +42,9 @@ function trackedFiles() {
       if (entry.isDirectory() && EXCLUDED_DIRECTORIES.has(entry.name)) continue;
       const absolute = path.join(directory, entry.name);
       if (entry.isDirectory()) walk(absolute);
-      else if (entry.isFile()) files.push(normalizePath(path.relative(repositoryRoot, absolute)));
+      else if (entry.isFile()) {
+        files.push(normalizePath(path.relative(repositoryRoot, absolute)));
+      }
     }
   }
   walk(repositoryRoot);
@@ -202,12 +204,19 @@ const packagePath = path.join(workerRoot, "package.json");
 const packageJson = fs.existsSync(packagePath)
   ? JSON.parse(fs.readFileSync(packagePath, "utf8"))
   : {};
-const expectedCommand = "node scripts/check-source-secrets.mjs";
-if (packageJson.scripts?.["check:source-secrets"] !== expectedCommand) {
-  errors.push(`worker/package.json must expose check:source-secrets as ${expectedCommand}`);
+const expectedScripts = {
+  "check:source-secrets": "node scripts/check-source-secrets.mjs",
+  "check:security": "node scripts/check-security-contract.mjs",
+  typecheck: "tsc -p tsconfig.json --noEmit",
+  "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
+  check: "npm run check:source-secrets && npm run check:security && npm run typecheck && npm run check:bundle",
+};
+for (const [name, command] of Object.entries(expectedScripts)) {
+  if (packageJson.scripts?.[name] !== command) {
+    errors.push(`worker/package.json script ${name} must equal: ${command}`);
+  }
 }
-const checkCommand = String(packageJson.scripts?.check || "");
-if (!checkCommand.startsWith("npm run check:source-secrets &&")) {
+if (!String(packageJson.scripts?.check || "").startsWith("npm run check:source-secrets &&")) {
   errors.push("Worker check must run tracked-source secret safety first");
 }
 
@@ -217,18 +226,20 @@ const contract = fs.existsSync(contractPath)
   : "";
 for (const token of [
   '"check:source-secrets": "node scripts/check-source-secrets.mjs"',
-  "npm run check:source-secrets && npm run check:security && npm run typecheck",
+  '"check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc"',
+  "npm run check:source-secrets && npm run check:security && npm run typecheck && npm run check:bundle",
   "trackedSourceSecretSafetyRequired: true",
+  "dryRunBundleRequired: true",
 ]) {
   if (!contract.includes(token)) {
-    errors.push(`security contract must require source-secret posture: ${token}`);
+    errors.push(`security contract must require source-secret and bundle posture: ${token}`);
   }
 }
 
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-tracked-source-secret-safety-v1",
+  contract: "client-chat-platform-tracked-source-secret-safety-v2-bundle",
   trackedFilesInspected: files.length,
   maximumScannedFileBytes: MAX_SCANNED_FILE_BYTES,
   trackedEnvironmentFilesAllowed: [...ALLOWED_ENV_FILES],
@@ -237,6 +248,8 @@ console.log(JSON.stringify({
   liveProviderTokensAllowed: false,
   credentialBearingUrlsAllowed: false,
   rawSecretValuesPrinted: false,
+  completeCheckOrderRequired: true,
+  dryRunBundleRequired: true,
   repositoryVisibilityEnforcedBySource: false,
   errors,
 }, null, 2));
