@@ -1,203 +1,445 @@
 <!doctype html>
-<html lang="en">
+<html lang="en-AU">
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Client Chat Platform — Admin</title>
+  <meta name="referrer" content="no-referrer" />
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; connect-src https: http://localhost:* http://127.0.0.1:*; img-src data:; base-uri 'none'; form-action 'none'" />
+  <title>EVAVO Client Chat Platform — Admin</title>
   <style>
-    :root{color-scheme:dark}
-    body{margin:0;font-family:ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:#070a0f;color:#e8eef6}
-    .wrap{max-width:980px;margin:0 auto;padding:28px}
-    .card{background:rgba(255,255,255,.03);border:1px solid rgba(255,255,255,.08);border-radius:16px;padding:18px}
-    h1{font-size:18px;margin:0 0 14px}
-    label{font-size:12px;color:rgba(255,255,255,.75);display:block;margin:12px 0 6px}
-    input,textarea,select{width:100%;box-sizing:border-box;background:rgba(0,0,0,.25);border:1px solid rgba(255,255,255,.10);border-radius:12px;color:#fff;padding:10px;font-size:13px;outline:none}
-    textarea{min-height:96px;resize:vertical}
-    .row{display:grid;grid-template-columns:1fr 1fr;gap:12px}
-    .btns{display:flex;gap:10px;margin-top:14px;flex-wrap:wrap}
-    button{border:0;border-radius:12px;padding:10px 12px;font-weight:800;cursor:pointer}
-    .primary{background:#00e589;color:#08110d}
-    .ghost{background:rgba(255,255,255,.08);color:#fff}
-    .note{font-size:12px;color:rgba(255,255,255,.7);margin-top:10px;line-height:1.4}
-    pre{background:rgba(0,0,0,.35);border:1px solid rgba(255,255,255,.08);border-radius:12px;padding:12px;overflow:auto}
+    :root{color-scheme:dark;--bg:#07090d;--panel:#0d1118;--panel2:#111824;--text:#edf3fa;--muted:#8d99a8;--line:#273142;--accent:#ff244e;--danger:#ff6b81;--focus:#ffb3c2}
+    *{box-sizing:border-box}
+    body{margin:0;min-height:100vh;font-family:Inter,ui-sans-serif,system-ui,-apple-system,Segoe UI,Roboto,Arial;background:radial-gradient(circle at top,#151d2b 0,var(--bg) 48%);color:var(--text)}
+    button,input,textarea,select{font:inherit}
+    button:focus-visible,input:focus-visible,textarea:focus-visible,select:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+    .wrap{max-width:1120px;margin:0 auto;padding:32px 18px 64px}
+    .mast{display:flex;align-items:flex-start;justify-content:space-between;gap:24px;margin-bottom:22px}
+    .eyebrow{margin:0 0 8px;color:var(--accent);font-size:11px;font-weight:900;letter-spacing:.16em;text-transform:uppercase}
+    h1{font-size:clamp(24px,4vw,42px);line-height:1.05;margin:0;letter-spacing:-.035em}
+    .intro{max-width:720px;color:var(--muted);line-height:1.65;margin:14px 0 0}
+    .badge{border:1px solid var(--line);border-radius:999px;padding:8px 11px;color:var(--muted);font-size:11px;white-space:nowrap}
+    .card{background:color-mix(in srgb,var(--panel) 94%,transparent);border:1px solid var(--line);border-radius:18px;box-shadow:0 28px 90px rgba(0,0,0,.34);overflow:hidden}
+    .section{padding:22px;border-top:1px solid var(--line)}
+    .section:first-child{border-top:0}
+    .section-title{margin:0 0 4px;font-size:14px}
+    .section-copy{margin:0 0 18px;color:var(--muted);font-size:12px;line-height:1.55}
+    .grid{display:grid;grid-template-columns:repeat(12,minmax(0,1fr));gap:14px}
+    .span-12{grid-column:span 12}.span-8{grid-column:span 8}.span-6{grid-column:span 6}.span-4{grid-column:span 4}.span-3{grid-column:span 3}
+    label{display:block;color:#cbd5e2;font-size:12px;font-weight:700}
+    input,textarea,select{width:100%;margin-top:7px;border:1px solid var(--line);border-radius:11px;background:var(--panel2);color:var(--text);padding:11px 12px;outline:none;transition:border-color .15s,background .15s}
+    input:hover,textarea:hover,select:hover{border-color:#3c4a60}
+    textarea{min-height:108px;resize:vertical;line-height:1.5}
+    textarea.large{min-height:190px}
+    input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:var(--accent)}
+    .check{display:flex;align-items:center;gap:10px;min-height:44px;border:1px solid var(--line);border-radius:11px;background:var(--panel2);padding:10px 12px}
+    .check label{font-weight:600}
+    .help{display:block;margin-top:6px;color:var(--muted);font-size:11px;line-height:1.45;font-weight:400}
+    .actions{display:flex;flex-wrap:wrap;gap:10px;align-items:center}
+    button{min-height:44px;border:1px solid var(--line);border-radius:11px;padding:10px 15px;font-weight:850;cursor:pointer;background:#151d28;color:var(--text)}
+    button:hover:not(:disabled){border-color:#52627a;background:#1a2533}
+    button.primary{border-color:var(--accent);background:var(--accent);color:#090b10}
+    button.primary:hover:not(:disabled){background:#ff4d70}
+    button:disabled{cursor:not-allowed;opacity:.48}
+    .status{min-height:22px;margin:14px 0 0;color:var(--muted);font-size:12px;line-height:1.5}
+    .status.error{color:var(--danger)}
+    pre{max-height:420px;margin:0;overflow:auto;white-space:pre-wrap;overflow-wrap:anywhere;background:#06080c;border:1px solid var(--line);border-radius:12px;padding:14px;color:#c9d6e5;font:12px/1.55 ui-monospace,SFMono-Regular,Consolas,monospace}
+    .security{border-left:4px solid var(--accent);background:rgba(255,36,78,.07);padding:13px 15px;color:#f5c9d2;font-size:12px;line-height:1.6}
+    @media(max-width:760px){.mast{display:block}.badge{display:inline-block;margin-top:16px}.span-8,.span-6,.span-4,.span-3{grid-column:span 12}.section{padding:18px}}
   </style>
 </head>
 <body>
-  <div class="wrap">
-    <div class="card">
-      <h1>Client Chat Platform — Admin</h1>
-
-      <div class="row">
-        <div>
-          <label>API Base (Worker URL)</label>
-          <input id="apiBase" placeholder="https://client-chat-platform.<sub>.workers.dev" />
-        </div>
-        <div>
-          <label>Admin Token (Bearer)</label>
-          <input id="token" placeholder="paste ADMIN_TOKEN" />
-        </div>
+  <main class="wrap">
+    <header class="mast">
+      <div>
+        <p class="eyebrow">EVAVO internal operator surface</p>
+        <h1>Client Chat Platform</h1>
+        <p class="intro">Configure approved browser origins, curated knowledge, cached public sources and bounded usage. The admin token stays in this tab only and is never persisted by this page.</p>
       </div>
+      <span class="badge">Hardened contract v2</span>
+    </header>
 
-      <label>Bot ID</label>
-      <input id="botId" placeholder="digital-safegrid" />
-
-      <div class="row">
-        <div>
-          <label>Site name</label>
-          <input id="siteName" placeholder="Digital SafeGrid" />
+    <form id="configForm" class="card" novalidate>
+      <section class="section">
+        <h2 class="section-title">Connection</h2>
+        <p class="section-copy">The Worker accepts exact Bearer authentication. Hosted admin pages must be listed in the Worker’s <code>ADMIN_ALLOWED_ORIGINS</code>; localhost is accepted for development.</p>
+        <div class="grid">
+          <label class="span-8">Worker API origin
+            <input id="apiBase" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://client-chat-platform.example.workers.dev" required maxlength="2048" />
+            <span class="help">Use an HTTPS origin without a path, query string, credentials or fragment.</span>
+          </label>
+          <label class="span-4">Admin token
+            <input id="token" type="password" autocomplete="off" spellcheck="false" placeholder="ADMIN_TOKEN" required minlength="32" maxlength="256" />
+            <span class="help">32–256 bytes. It is sent only as an Authorization Bearer token.</span>
+          </label>
         </div>
-        <div>
-          <label>Contact URL</label>
-          <input id="contactUrl" placeholder="https://example.com/contact" />
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Bot identity and access</h2>
+        <p class="section-copy">Browser chat is allowed only from exact origins. Wildcards are intentionally unsupported. A bot key is optional for trusted non-browser clients that do not send an Origin header.</p>
+        <div class="grid">
+          <label class="span-4">Bot ID
+            <input id="botId" autocomplete="off" spellcheck="false" placeholder="evavo" required maxlength="64" pattern="[A-Za-z0-9_-]{1,64}" />
+          </label>
+          <label class="span-4">Site name
+            <input id="siteName" autocomplete="organization" maxlength="160" placeholder="EVAVO Studio" />
+          </label>
+          <label class="span-4">Contact URL
+            <input id="contactUrl" maxlength="512" placeholder="/contact or https://example.com/contact" />
+          </label>
+          <label class="span-8">Allowed browser origins
+            <textarea id="allowedOrigins" required maxlength="6000" placeholder="https://evavo.com.au&#10;https://www.evavo.com.au"></textarea>
+            <span class="help">One exact HTTPS origin per line. Local development may use http://localhost:PORT or http://127.0.0.1:PORT.</span>
+          </label>
+          <label class="span-4">Server bot key (optional)
+            <input id="botKey" type="password" autocomplete="off" spellcheck="false" minlength="16" maxlength="256" placeholder="Leave empty for browser-only use" />
+            <span class="help">Do not embed this key in public HTML or the browser widget.</span>
+          </label>
         </div>
-      </div>
+      </section>
 
-      <div class="row">
-        <div>
-          <label>Brand hex</label>
-          <input id="brandHex" placeholder="#00e589" />
+      <section class="section">
+        <h2 class="section-title">Voice and approved knowledge</h2>
+        <div class="grid">
+          <label class="span-4">Lead mode
+            <select id="leadMode">
+              <option value="soft">Soft</option>
+              <option value="balanced" selected>Balanced</option>
+              <option value="direct">Direct</option>
+            </select>
+          </label>
+          <label class="span-8">Tone and response rules
+            <textarea id="tone" maxlength="4000" placeholder="Calm, concise and practical. Do not invent pricing, timelines or compliance claims."></textarea>
+          </label>
+          <label class="span-12">Curated knowledge
+            <textarea id="knowledge" class="large" maxlength="200000" placeholder="Approved facts, services, policies, limitations and handoff guidance."></textarea>
+          </label>
+          <label class="span-6">Qualifying questions
+            <textarea id="qualifyingQuestions" maxlength="5200" placeholder="What are you trying to build?&#10;Who is it for?&#10;What timing and budget range are you working with?"></textarea>
+          </label>
+          <label class="span-6">Public knowledge URLs
+            <textarea id="knowledgeUrls" maxlength="50000" placeholder="https://evavo.com.au/services&#10;https://evavo.com.au/faq"></textarea>
+            <span class="help">HTTPS only. Public chat never fetches these live; use Refresh cache after approved content changes.</span>
+          </label>
         </div>
-        <div>
-          <label>Lead mode</label>
-          <select id="leadMode">
-            <option value="soft">soft</option>
-            <option value="balanced" selected>balanced</option>
-            <option value="hard">hard</option>
-          </select>
+      </section>
+
+      <section class="section">
+        <h2 class="section-title">Retrieval, model and usage limits</h2>
+        <div class="grid">
+          <div class="span-3 check"><input id="ragEnabled" type="checkbox" /><label for="ragEnabled">Use cached website excerpts</label></div>
+          <label class="span-3">Cached URLs per answer
+            <input id="ragMaxUrlsPerRequest" type="number" min="0" max="3" step="1" value="1" />
+          </label>
+          <label class="span-6">Workers AI model
+            <input id="model" spellcheck="false" maxlength="128" placeholder="@cf/meta/llama-3.2-3b-instruct" />
+          </label>
+          <label class="span-3">Max output tokens
+            <input id="maxTokens" type="number" min="64" max="1024" step="1" value="320" />
+          </label>
+          <label class="span-3">Max turns
+            <input id="maxTurns" type="number" min="4" max="30" step="1" value="8" />
+          </label>
+          <label class="span-3">Max message characters
+            <input id="maxCharsPerMessage" type="number" min="200" max="8000" step="1" value="1400" />
+          </label>
+          <label class="span-3">Rate limit requests
+            <input id="rateLimit" type="number" min="1" max="120" step="1" value="5" />
+          </label>
+          <label class="span-3">Rate window seconds
+            <input id="rateWindowSeconds" type="number" min="10" max="3600" step="1" value="60" />
+          </label>
+          <label class="span-3">Daily requests
+            <input id="dailyRequests" type="number" min="0" max="100000" step="1" value="45" />
+          </label>
+          <label class="span-3">Daily tokens
+            <input id="dailyTokens" type="number" min="0" max="50000000" step="1" value="45000" />
+          </label>
+          <label class="span-3">Cache TTL seconds
+            <input id="ragCacheTtlSeconds" type="number" min="60" max="604800" step="1" value="86400" />
+          </label>
         </div>
-      </div>
+      </section>
 
-      <label>Greeting</label>
-      <textarea id="greeting" placeholder="Hi — I can help with..."></textarea>
-
-      <label>Knowledge (paste curated FAQ/policies)</label>
-      <textarea id="knowledge" placeholder="Key facts, offerings, constraints, pricing ranges, locations, handoff paths... (keep concise)"></textarea>
-
-      <label>Knowledge URLs (static pages; one per line)</label>
-      <textarea id="knowledgeUrls" placeholder="https://digitalsafegrid.com.au/services&#10;https://digitalsafegrid.com.au/faq"></textarea>
-
-      <div class="row" style="margin-top:12px;">
-        <label style="display:flex; align-items:center; gap:10px;">
-          <input id="ragEnabled" type="checkbox" />
-          Enable URL retrieval (cached)
-        </label>
-        <div class="grow"></div>
-        <div>
-          <label>Max URLs / request</label>
-          <input id="ragMaxUrlsPerRequest" placeholder="2" />
+      <section class="section">
+        <h2 class="section-title">Safe actions</h2>
+        <p class="section-copy">The hardened router supports contact navigation and internal KV lead capture only. External webhook configuration is rejected.</p>
+        <div class="grid">
+          <div class="span-4 check"><input id="actionsEnabled" type="checkbox" /><label for="actionsEnabled">Allow model actions</label></div>
+          <div class="span-4 check"><input id="allowContact" type="checkbox" checked /><label for="allowContact">Open contact path</label></div>
+          <div class="span-4 check"><input id="allowLead" type="checkbox" /><label for="allowLead">Store internal lead record</label></div>
         </div>
-      </div>
+      </section>
 
-      <label>Qualifying questions (one per line)</label>
-      <textarea id="qualifyingQuestions"></textarea>
-
-      <label>Allowed origins (one per line, optional)</label>
-      <textarea id="allowedOrigins" placeholder="https://client.com&#10;https://www.client.com"></textarea>
-
-      <div class="row">
-        <div>
-          <label>Model override (optional)</label>
-          <input id="model" placeholder="@cf/meta/llama-3-8b-instruct" />
+      <section class="section">
+        <div class="security">Never paste provider keys, Cloudflare API tokens, customer passwords or confidential project records into bot configuration. Curated knowledge becomes part of the model context.</div>
+        <div class="actions" style="margin-top:16px">
+          <button class="primary" type="submit" id="saveBtn">Save reviewed configuration</button>
+          <button type="button" id="loadBtn">Load bot</button>
+          <button type="button" id="refreshBtn">Refresh approved cache</button>
+          <button type="button" id="listBtn">List bot IDs</button>
         </div>
-        <div>
-          <label>Max tokens (optional)</label>
-          <input id="maxTokens" placeholder="420" />
-        </div>
-      </div>
+        <p id="status" class="status" role="status" aria-live="polite"></p>
+      </section>
 
-      <div class="btns">
-        <button class="primary" id="saveBtn">Save / Update</button>
-        <button class="ghost" id="loadBtn">Load</button>
-      </div>
-
-      <div class="note">
-        Tip: keep model small + token caps low for $0-friendly operation. Add allowedOrigins to prevent abuse.
-      </div>
-
-      <label>Result</label>
-      <pre id="out">{ }</pre>
-    </div>
-  </div>
+      <section class="section">
+        <h2 class="section-title">Sanitised result</h2>
+        <p class="section-copy">Secret-like fields are redacted locally before this response is displayed.</p>
+        <pre id="out" tabindex="0">{}</pre>
+      </section>
+    </form>
+  </main>
 
 <script>
-function lines(id){
-  const v = (document.getElementById(id).value || "").trim();
-  if (!v) return [];
-  return v.split(/\r?\n/).map(s=>s.trim()).filter(Boolean);
-}
-function val(id){ return (document.getElementById(id).value || "").trim(); }
-function setVal(id, v){ document.getElementById(id).value = v || ""; }
+(() => {
+  "use strict";
+  const byId = (id) => document.getElementById(id);
+  const form = byId("configForm");
+  const status = byId("status");
+  const output = byId("out");
+  const buttons = ["saveBtn", "loadBtn", "refreshBtn", "listBtn"].map(byId);
+  let busy = false;
 
-function apiHeaders(){
-  const token = val("token");
-  return {
-    "content-type": "application/json",
-    "authorization": token ? ("Bearer " + token) : ""
-  };
-}
-function apiBase(){
-  return val("apiBase").replace(/\/$/,"");
-}
-function out(obj){
-  document.getElementById("out").textContent = JSON.stringify(obj, null, 2);
-}
+  const text = (id) => String(byId(id).value || "").trim();
+  const number = (id) => Number(text(id));
+  const lines = (id) => text(id).split(/\r?\n/).map((value) => value.trim()).filter(Boolean);
+  const setText = (id, value) => { byId(id).value = value == null ? "" : String(value); };
+  const setNumber = (id, value, fallback) => { byId(id).value = Number.isFinite(Number(value)) ? String(value) : String(fallback); };
 
-async function save(){
-  const cfg = {
-    botId: val("botId"),
-    siteName: val("siteName"),
-    contactUrl: val("contactUrl"),
-    brandHex: val("brandHex") || undefined,
-    leadMode: val("leadMode") || "balanced",
-    greeting: val("greeting"),
-    knowledge: val("knowledge") || undefined,
-    knowledgeUrls: lines("knowledgeUrls"),
-    ragEnabled: document.getElementById("ragEnabled").checked,
-    ragMaxUrlsPerRequest: val("ragMaxUrlsPerRequest") ? Number(val("ragMaxUrlsPerRequest")) : undefined,
-    qualifyingQuestions: lines("qualifyingQuestions"),
-    allowedOrigins: lines("allowedOrigins"),
-    model: val("model") || undefined,
-    maxTokens: val("maxTokens") ? Number(val("maxTokens")) : undefined
-  };
-
-  const res = await fetch(apiBase() + "/admin/upsert", {
-    method: "POST",
-    headers: apiHeaders(),
-    body: JSON.stringify(cfg)
-  });
-  const data = await res.json().catch(()=>({}));
-  out({ status: res.status, data });
-}
-
-async function load(){
-  const res = await fetch(apiBase() + "/admin/get", {
-    method: "POST",
-    headers: apiHeaders(),
-    body: JSON.stringify({ botId: val("botId") })
-  });
-  const data = await res.json().catch(()=>({}));
-  out({ status: res.status, data });
-
-  if (res.ok && data && data.cfg){
-    const c = data.cfg;
-    setVal("siteName", c.siteName);
-    setVal("contactUrl", c.contactUrl);
-    setVal("brandHex", c.brandHex || "");
-    setVal("leadMode", c.leadMode || "balanced");
-    setVal("greeting", c.greeting || "");
-    setVal("knowledge", c.knowledge || "");
-    setVal("knowledgeUrls", (c.knowledgeUrls||[]).join("\n"));
-    document.getElementById("ragEnabled").checked = !!c.ragEnabled;
-    setVal("ragMaxUrlsPerRequest", c.ragMaxUrlsPerRequest != null ? String(c.ragMaxUrlsPerRequest) : "");
-    setVal("qualifyingQuestions", (c.qualifyingQuestions||[]).join("\n"));
-    setVal("allowedOrigins", (c.allowedOrigins||[]).join("\n"));
-    setVal("model", c.model || "");
-    setVal("maxTokens", c.maxTokens != null ? String(c.maxTokens) : "");
+  function setBusy(value) {
+    busy = value;
+    for (const button of buttons) button.disabled = value;
   }
-}
 
-document.getElementById("saveBtn").addEventListener("click", ()=>save().catch(e=>out({error:String(e)})));
-document.getElementById("loadBtn").addEventListener("click", ()=>load().catch(e=>out({error:String(e)})));
+  function setStatus(message, error = false) {
+    status.textContent = message || "";
+    status.classList.toggle("error", error);
+  }
+
+  function safeApiOrigin() {
+    const raw = text("apiBase");
+    let url;
+    try { url = new URL(raw); } catch { throw new Error("Enter a valid Worker API origin."); }
+    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";
+    if ((url.protocol !== "https:" && !(url.protocol === "http:" && local)) || url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
+      throw new Error("Worker API must be an HTTPS origin without credentials, path, query or fragment.");
+    }
+    return url.origin;
+  }
+
+  function exactOrigin(raw) {
+    let url;
+    try { url = new URL(raw); } catch { return null; }
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
+    const protocolAllowed = url.protocol === "https:" || (url.protocol === "http:" && local);
+    if (!protocolAllowed || raw.includes("*") || url.username || url.password || url.search || url.hash || url.pathname !== "/") return null;
+    return url.origin;
+  }
+
+  function publicHttpsUrl(raw) {
+    let url;
+    try { url = new URL(raw); } catch { return null; }
+    if (url.protocol !== "https:" || url.username || url.password || url.port && url.port !== "443" || url.hash) return null;
+    for (const key of url.searchParams.keys()) {
+      if (["token","secret","password","key","api_key","apikey","access_token","client_secret","authorization"].includes(key.toLowerCase().replace(/[-.]/g,"_"))) return null;
+    }
+    return url.toString();
+  }
+
+  function validatedOrigins() {
+    const values = lines("allowedOrigins");
+    if (!values.length) throw new Error("Add at least one exact browser origin.");
+    const normalized = values.map(exactOrigin);
+    if (normalized.some((value) => !value)) throw new Error("Allowed origins must be exact HTTPS origins. Wildcards and paths are not accepted.");
+    return [...new Set(normalized)];
+  }
+
+  function validatedKnowledgeUrls() {
+    const values = lines("knowledgeUrls");
+    const normalized = values.map(publicHttpsUrl);
+    if (normalized.some((value) => !value)) throw new Error("Knowledge URLs must be public HTTPS URLs without credentials or sensitive query keys.");
+    return [...new Set(normalized)];
+  }
+
+  function validatedContactUrl() {
+    const value = text("contactUrl") || "/contact";
+    if (value.startsWith("/") && !value.startsWith("//") && !value.includes("\\")) return value;
+    const normalized = publicHttpsUrl(value);
+    if (!normalized) throw new Error("Contact URL must be a safe relative path or public HTTPS URL.");
+    return normalized;
+  }
+
+  function validToken() {
+    const value = text("token");
+    const bytes = new TextEncoder().encode(value).byteLength;
+    if (!value || /\s/.test(value) || bytes < 32 || bytes > 256) throw new Error("Admin token must be 32–256 bytes with no whitespace.");
+    return value;
+  }
+
+  function validBotKey() {
+    const value = text("botKey");
+    if (!value) return "";
+    if (/\s/.test(value) || value.length < 16 || value.length > 256) throw new Error("Bot key must be 16–256 characters with no whitespace.");
+    return value;
+  }
+
+  function integer(id, minimum, maximum) {
+    const value = number(id);
+    if (!Number.isInteger(value) || value < minimum || value > maximum) throw new Error(`${byId(id).closest("label")?.firstChild?.textContent?.trim() || id} is outside its allowed range.`);
+    return value;
+  }
+
+  function configPayload() {
+    const botId = text("botId");
+    if (!/^[A-Za-z0-9_-]{1,64}$/.test(botId)) throw new Error("Bot ID may contain only letters, numbers, underscores and hyphens.");
+    const allowedActionTypes = [
+      ...(byId("allowContact").checked ? ["open_contact"] : []),
+      ...(byId("allowLead").checked ? ["create_lead"] : []),
+    ];
+    if (!allowedActionTypes.length) allowedActionTypes.push("none");
+    return {
+      botId,
+      siteName: text("siteName"),
+      contactUrl: validatedContactUrl(),
+      tone: text("tone"),
+      leadMode: text("leadMode"),
+      qualifyingQuestions: lines("qualifyingQuestions"),
+      allowedOrigins: validatedOrigins(),
+      botKey: validBotKey(),
+      knowledge: text("knowledge"),
+      knowledgeUrls: validatedKnowledgeUrls(),
+      ragEnabled: byId("ragEnabled").checked,
+      ragMode: "simple",
+      ragMaxUrlsPerRequest: integer("ragMaxUrlsPerRequest", 0, 3),
+      ragCacheTtlSeconds: integer("ragCacheTtlSeconds", 60, 604800),
+      model: text("model") || undefined,
+      maxTokens: integer("maxTokens", 64, 1024),
+      maxTurns: integer("maxTurns", 4, 30),
+      maxCharsPerMessage: integer("maxCharsPerMessage", 200, 8000),
+      rateLimit: {
+        limit: integer("rateLimit", 1, 120),
+        windowSeconds: integer("rateWindowSeconds", 10, 3600),
+      },
+      dailyBudget: {
+        maxRequestsPerDay: integer("dailyRequests", 0, 100000),
+        maxTokensPerDay: integer("dailyTokens", 0, 50000000),
+      },
+      actions: {
+        actionsEnabled: byId("actionsEnabled").checked,
+        allowedActionTypes,
+      },
+    };
+  }
+
+  function redact(value, key = "") {
+    if (/token|secret|password|botkey|authorization/i.test(key)) return "[redacted]";
+    if (Array.isArray(value)) return value.map((item) => redact(item));
+    if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, nested]) => [name, redact(nested, name)]));
+    return value;
+  }
+
+  function show(value) {
+    output.textContent = JSON.stringify(redact(value), null, 2);
+  }
+
+  async function request(path, body = {}) {
+    const origin = safeApiOrigin();
+    const token = validToken();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), 15000);
+    try {
+      const response = await fetch(`${origin}${path}`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body),
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        signal: controller.signal,
+      });
+      const data = await response.json().catch(() => ({ ok: false, error: "invalid_json_response" }));
+      show({ status: response.status, data });
+      if (!response.ok || data?.ok === false) throw new Error(String(data?.error || `Request failed with HTTP ${response.status}.`));
+      return data;
+    } catch (error) {
+      if (error?.name === "AbortError") throw new Error("The Worker did not respond within 15 seconds.");
+      throw error;
+    } finally {
+      clearTimeout(timeout);
+    }
+  }
+
+  function applyConfig(config) {
+    setText("siteName", config.siteName);
+    setText("contactUrl", config.contactUrl || "/contact");
+    setText("tone", config.tone);
+    setText("leadMode", ["soft","balanced","direct"].includes(config.leadMode) ? config.leadMode : "balanced");
+    setText("qualifyingQuestions", (config.qualifyingQuestions || []).join("\n"));
+    setText("allowedOrigins", (config.allowedOrigins || []).join("\n"));
+    setText("botKey", config.botKey || "");
+    setText("knowledge", config.knowledge);
+    setText("knowledgeUrls", (config.knowledgeUrls || []).join("\n"));
+    byId("ragEnabled").checked = config.ragEnabled === true;
+    setNumber("ragMaxUrlsPerRequest", config.ragMaxUrlsPerRequest, 1);
+    setNumber("ragCacheTtlSeconds", config.ragCacheTtlSeconds, 86400);
+    setText("model", config.model);
+    setNumber("maxTokens", config.maxTokens, 320);
+    setNumber("maxTurns", config.maxTurns, 8);
+    setNumber("maxCharsPerMessage", config.maxCharsPerMessage, 1400);
+    setNumber("rateLimit", config.rateLimit?.limit, 5);
+    setNumber("rateWindowSeconds", config.rateLimit?.windowSeconds, 60);
+    setNumber("dailyRequests", config.dailyBudget?.maxRequestsPerDay, 45);
+    setNumber("dailyTokens", config.dailyBudget?.maxTokensPerDay, 45000);
+    byId("actionsEnabled").checked = config.actions?.actionsEnabled === true;
+    const actions = Array.isArray(config.actions?.allowedActionTypes) ? config.actions.allowedActionTypes : [];
+    byId("allowContact").checked = actions.includes("open_contact");
+    byId("allowLead").checked = actions.includes("create_lead");
+  }
+
+  async function run(label, operation) {
+    if (busy) return;
+    setBusy(true);
+    setStatus(`${label}…`);
+    try {
+      const result = await operation();
+      setStatus(`${label} completed.`);
+      return result;
+    } catch (error) {
+      setStatus(error instanceof Error ? error.message : "The operation failed.", true);
+      throw error;
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    if (!form.reportValidity()) return;
+    void run("Saving reviewed configuration", () => request("/admin/upsert", configPayload())).catch(() => undefined);
+  });
+
+  byId("loadBtn").addEventListener("click", () => {
+    void run("Loading bot", async () => {
+      const botId = text("botId");
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(botId)) throw new Error("Enter a valid Bot ID first.");
+      const result = await request("/admin/get", { botId });
+      if (result.cfg) applyConfig(result.cfg);
+      return result;
+    }).catch(() => undefined);
+  });
+
+  byId("refreshBtn").addEventListener("click", () => {
+    void run("Refreshing approved cache", async () => {
+      const botId = text("botId");
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(botId)) throw new Error("Enter a valid Bot ID first.");
+      return request("/admin/kb/refresh", { botId });
+    }).catch(() => undefined);
+  });
+
+  byId("listBtn").addEventListener("click", () => {
+    void run("Listing bot IDs", () => request("/admin/list", {})).catch(() => undefined);
+  });
+})();
 </script>
 </body>
 </html>
