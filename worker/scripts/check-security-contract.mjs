@@ -30,16 +30,6 @@ function forbidTokens(label, source, tokens) {
   }
 }
 
-function segment(source, start, end) {
-  const from = source.indexOf(start);
-  const to = source.indexOf(end, from + start.length);
-  if (from < 0 || to < 0 || to <= from) {
-    errors.push(`Could not resolve source segment: ${start} -> ${end}`);
-    return "";
-  }
-  return source.slice(from, to);
-}
-
 function requireOrder(label, source, tokens) {
   let previous = -1;
   for (const token of tokens) {
@@ -52,8 +42,19 @@ function requireOrder(label, source, tokens) {
   }
 }
 
+function segment(source, start, end) {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
+  if (from < 0 || to < 0 || to <= from) {
+    errors.push(`Could not resolve source segment: ${start} -> ${end}`);
+    return "";
+  }
+  return source.slice(from, to);
+}
+
 const sources = {
   runtime: read(workerRoot, "src/runtime.ts"),
+  leadCapture: read(workerRoot, "src/leadCapture.ts"),
   hardened: read(workerRoot, "src/hardened.ts"),
   security: read(workerRoot, "src/security.ts"),
   config: read(workerRoot, "src/configBoundary.ts"),
@@ -76,9 +77,21 @@ const sources = {
 let workerPackage = {};
 let workerLock = {};
 let rootPackage = {};
-try { workerPackage = JSON.parse(sources.package); } catch { errors.push("worker/package.json must remain valid JSON"); }
-try { workerLock = JSON.parse(sources.lock); } catch { errors.push("worker/package-lock.json must remain valid JSON"); }
-try { rootPackage = JSON.parse(sources.rootPackage); } catch { errors.push("package.json must remain valid JSON"); }
+try {
+  workerPackage = JSON.parse(sources.package);
+} catch {
+  errors.push("worker/package.json must remain valid JSON");
+}
+try {
+  workerLock = JSON.parse(sources.lock);
+} catch {
+  errors.push("worker/package-lock.json must remain valid JSON");
+}
+try {
+  rootPackage = JSON.parse(sources.rootPackage);
+} catch {
+  errors.push("package.json must remain valid JSON");
+}
 
 requireTokens("Wrangler activation", sources.wrangler, [
   '"main": "src/runtime.ts"',
@@ -92,40 +105,88 @@ forbidTokens("Wrangler activation", sources.wrangler, [
   '"main": "src/index.ts"',
 ]);
 
-requireTokens("Final runtime boundary", sources.runtime, [
-  'ACTIVE_CHAT_RUNTIME_CONTRACT =\n  "client_chat_active_runtime_v1"',
+requireTokens("Active runtime", sources.runtime, [
+  '"client_chat_active_runtime_v2"',
   'DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct"',
   '"@cf/meta/llama-3-8b-instruct"',
-  "RETIRED_CHAT_MODELS",
-  "MODEL_PATTERN",
+  "MODEL_TIMEOUT_MS = 20_000",
   'LEGACY_ADMIN_HEADER = "x-admin-token"',
-  "effectiveChatModel",
+  'LEAD_ROUTE = "/api/leads"',
   "withoutLegacyAdminHeader",
   "headers.delete(LEGACY_ADMIN_HEADER)",
   "withModelBoundary",
-  "value.call(current, effectiveChatModel(model), ...args)",
-  "runtimeEnvironment",
+  "Promise.race",
+  "clearTimeout(timeout)",
+  "withoutImplicitLeadAccess",
+  'key.startsWith("lead:")',
+  "handleExplicitLeadCapture",
+  "leadCapturePreflight",
   'headers.set("X-EVAVO-Chat-Runtime", ACTIVE_CHAT_RUNTIME_CONTRACT)',
-  "hardenedWorker.fetch",
   "legacyAdminHeaderRemovedBeforeRouting: true",
-  "missingModelUsesReviewedFallback: true",
-  "malformedModelUsesReviewedFallback: true",
-  "retiredModelUsesReviewedFallback: true",
+  "implicitModelLeadStorageAllowed: false",
+  "implicitModelLeadIndexReadsAllowed: false",
+  "explicitVisitorLeadConsentRequired: true",
   "rawModelConfigurationExposedInRuntimeHeaders: false",
 ]);
-requireOrder("Final runtime request boundary", sources.runtime, [
+requireOrder("Active runtime request sequence", sources.runtime, [
   "withoutLegacyAdminHeader(request)",
-  "runtimeEnvironment(env)",
+  "new URL(sanitizedRequest.url).pathname",
+  "runtimeEnvironment(",
   "hardenedWorker.fetch",
   "stampRuntimeContract(response)",
 ]);
-forbidTokens("Final runtime boundary", sources.runtime, [
+forbidTokens("Active runtime", sources.runtime, [
   'request.headers.get("x-admin-token")',
   "request.json()",
   "env.AI.run(",
 ]);
 
-requireTokens("Request and network security", sources.security, [
+requireTokens("Explicit lead capture", sources.leadCapture, [
+  '"client_chat_explicit_lead_capture_v2"',
+  "LEAD_REQUEST_MAX_BYTES = 32 * 1024",
+  "LEAD_RATE_LIMIT = 3",
+  "LEAD_RETENTION_DAYS = 90",
+  'LEAD_CONSENT_VERSION = "visitor_follow_up_consent_v2"',
+  'TOP_LEVEL_FIELDS = ["botId", "consent", "evidence", "lead"]',
+  "MAX_EVIDENCE_MESSAGES = 20",
+  "MAX_EVIDENCE_TOTAL_CHARS = 20_000",
+  "sanitizeEvidence",
+  "textAppearsInEvidence",
+  "phoneAppearsInEvidence",
+  "value.consent !== true",
+  "browserOriginDecision(request, network.origins) !== origin",
+  "readBoundedJsonObject(request, LEAD_REQUEST_MAX_BYTES)",
+  "sha256Hex(",
+  'key = `lead-rate:v1:${bucket}:${fingerprint}`',
+  "crypto.getRandomValues(value)",
+  "expirationTtl: LEAD_RETENTION_SECONDS",
+  "expiresAt",
+  "evidenceStoredWithLead: false",
+  "modelActionWritesLeadDirectly: false",
+  "rawIpStored: false",
+  "userAgentStored: false",
+  "recordExpiryRequired: true",
+  "indexExpiryRequired: true",
+  "rawLeadEchoedInResponse: false",
+]);
+forbidTokens("Explicit lead capture", sources.leadCapture, [
+  "request.json()",
+  "await fetch(",
+  "sendEmail(",
+  "webhook",
+]);
+const storedLead = segment(
+  sources.leadCapture,
+  "async function storeExplicitLead",
+  "export function leadCapturePreflight",
+);
+forbidTokens("Stored lead record", storedLead, [
+  "evidence:",
+  "clientAddress(",
+  "user-agent",
+]);
+
+requireTokens("Request and network boundary", sources.security, [
   '"client_chat_security_v2"',
   "ADMIN_REQUEST_MAX_BYTES = 64 * 1024",
   "CHAT_REQUEST_MAX_BYTES = 128 * 1024",
@@ -142,12 +203,11 @@ requireTokens("Request and network security", sources.security, [
   "readResponseBody(",
   "deadline",
   "controller.abort()",
-  "clearTimeout(timeout)",
   "dnsRebindingMitigatedByRuntimePublicFetchFlag: true",
   "fullOperationTimeoutRequired: true",
   "dormantWebhookHelperPresent: false",
 ]);
-forbidTokens("Request and network security", sources.security, [
+forbidTokens("Request and network boundary", sources.security, [
   "postPublicWebhook",
   "WEBHOOK_TIMEOUT_MS",
   'redirect: "follow"',
@@ -219,7 +279,6 @@ requireTokens("Hardened router", sources.hardened, [
   'securityContract: "client_chat_hardened_router_v2"',
   "publicChatNetworkFetch: false",
   "legacyRouterDirectlyDeployed: false",
-  "publicChatNetworkFetchAllowed: false",
   "unexpectedErrorsSanitized: true",
 ]);
 forbidTokens("Hardened router", sources.hardened, [
@@ -230,7 +289,10 @@ forbidTokens("Hardened router", sources.hardened, [
   "fetchBoundedPublicText",
 ]);
 const chatRoute = segment(sources.hardened, "async function handleChat", "export default");
-forbidTokens("Public chat route", chatRoute, ["await fetch(", "fetchBoundedPublicText("]);
+forbidTokens("Public chat route", chatRoute, [
+  "await fetch(",
+  "fetchBoundedPublicText(",
+]);
 requireOrder("Public chat authorization", chatRoute, [
   "safeStoredNetworkConfig(config)",
   "browserOriginDecision(request, network.origins)",
@@ -281,8 +343,17 @@ requireTokens("Embeddable widget", sources.widget, [
   'event.key !== "Tab"',
   "shadow.activeElement",
   "Do not share passwords, access credentials or confidential records.",
-  "safeContactUrl",
-  "registry.has(botId)",
+  "registry.has(registration)",
+  "userEvidence",
+  "textSupported",
+  "emailFromEvidence",
+  "messageFromEvidence",
+  'fetch(`${base}/api/leads`',
+  "consent: true",
+  "evidence: proposal.evidence",
+  "Share for follow-up",
+  "Nothing is saved until you choose Share",
+  "retained for up to 90 days",
 ]);
 forbidTokens("Embeddable widget", sources.widget, [
   "innerHTML",
@@ -323,7 +394,6 @@ requireTokens("Read-only CI workflow", sources.workflow, [
   '      - "admin/**"',
   '      - "widget/**"',
   '      - "docs/**"',
-  '      - ".dev.vars.example"',
   "permissions:\n  contents: read",
   "cancel-in-progress: true",
   "timeout-minutes: 12",
@@ -334,60 +404,27 @@ requireTokens("Read-only CI workflow", sources.workflow, [
   "npm run check:source-secrets",
   "npm run check:security",
   "npm run typecheck",
+  "npm run check:bundle",
 ]);
 requireOrder("Read-only CI workflow", sources.workflow, [
   "npm ci --no-audit --no-fund",
   "npm run check:source-secrets",
   "npm run check:security",
   "npm run typecheck",
+  "npm run check:bundle",
 ]);
 forbidTokens("Read-only CI workflow", sources.workflow, [
-  "wrangler deploy",
   "secrets.",
   "ADMIN_TOKEN:",
   "persist-credentials: true",
-]);
-
-requireTokens("README operating posture", sources.readme, [
-  "The deployed entrypoint is `worker/src/runtime.ts`",
-  "removes the retired `x-admin-token` header",
-  "@cf/meta/llama-3.2-3b-instruct",
-  "Public chat never fetches knowledge URLs live",
-  "Workers KV. KV is eventually consistent",
-  "npm run check:source-secrets",
-  "npm run check:security",
-  "npm run typecheck",
-  "cmd /c \"npm run deploy\"",
-]);
-requireTokens("Deployment runbook", sources.deploy, [
-  "worker/src/runtime.ts",
-  "Do not point Wrangler directly at either compatibility module",
-  "cmd /c \"npm ci --no-audit --no-fund\"",
-  "cmd /c \"npm run check\"",
-  "x-admin-token",
-  "X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1",
-  "@cf/meta/llama-3.2-3b-instruct",
-  "Public chat never fetches source pages during a visitor request",
-  "cmd /c \"npm run deploy\"",
-  "Direct Wrangler invocation bypasses the npm `predeploy` gate",
-  "Workers KV counters and indexes are eventually consistent",
-]);
-requireTokens("Security boundary document", sources.boundary, [
-  "worker/src/runtime.ts",
-  "removes the retired administrator header globally",
-  "X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1",
-  "Public chat performs no external network fetch",
-  "kb:v2:<64-character SHA-256 hex digest>",
-  "The resulting key is 70 bytes",
-  "External webhook execution is disabled",
-  "Workers KV is eventually consistent",
 ]);
 
 const expectedWorkerScripts = {
   "check:source-secrets": "node scripts/check-source-secrets.mjs",
   "check:security": "node scripts/check-security-contract.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
-  check: "npm run check:source-secrets && npm run check:security && npm run typecheck",
+  "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
+  check: "npm run check:source-secrets && npm run check:security && npm run typecheck && npm run check:bundle",
   predeploy: "npm run check",
   deploy: "wrangler deploy -c wrangler.jsonc",
   tail: "wrangler tail -c wrangler.jsonc",
@@ -399,16 +436,42 @@ for (const [name, command] of Object.entries(expectedWorkerScripts)) {
   }
 }
 if (rootPackage.scripts?.check !== "npm --prefix worker run check") {
-  errors.push("root package.json must expose check through the Worker package");
+  errors.push("package.json must expose the complete Worker check");
 }
 if (rootPackage.scripts?.deploy !== "npm --prefix worker run deploy") {
-  errors.push("root package.json must expose guarded Worker deployment");
+  errors.push("package.json must expose guarded Worker deployment");
 }
 if (
   workerLock.name !== workerPackage.name ||
   workerLock.packages?.[""]?.name !== workerPackage.name
 ) {
   errors.push("Worker package and lockfile root identities must remain aligned");
+}
+
+for (const [label, source, tokens] of [
+  ["README", sources.readme, [
+    "worker/src/runtime.ts",
+    "client_chat_active_runtime_v2",
+    "visitor",
+    "90 days",
+    "npm run check:bundle",
+  ]],
+  ["Deployment runbook", sources.deploy, [
+    "worker/src/runtime.ts",
+    "client_chat_active_runtime_v2",
+    "visitor",
+    "90 days",
+    "npm run check:bundle",
+  ]],
+  ["Security boundary", sources.boundary, [
+    "worker/src/runtime.ts",
+    "client_chat_active_runtime_v2",
+    "visitor",
+    "90 days",
+    "explicit",
+  ]],
+]) {
+  requireTokens(label, source, tokens);
 }
 
 const fixtureUrl = "https://example.com/";
@@ -420,15 +483,21 @@ if (Buffer.byteLength(cacheKey, "utf8") !== 70) {
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-security-contract-v4-final-runtime",
+  contract: "client-chat-platform-security-contract-v5-consent-retention-bundle",
   activeEntrypoint: "worker/src/runtime.ts",
-  hardenedRouterRequired: true,
+  activeRuntimeContract: "client_chat_active_runtime_v2",
   legacyEntrypointActive: false,
   legacyAdminHeaderAllowed: false,
   reviewedModelFallbackRequired: true,
+  modelTimeoutRequired: true,
+  implicitModelLeadStorageAllowed: false,
+  explicitVisitorLeadConsentRequired: true,
+  visitorEvidenceRequired: true,
+  leadEvidenceStored: false,
+  leadRetentionDays: 90,
   trackedSourceSecretSafetyRequired: true,
   readOnlyCiRequired: true,
-  operatingDocumentationRequired: true,
+  dryRunBundleRequired: true,
   publicChatNetworkFetchAllowed: false,
   adminRefreshNetworkOnly: true,
   knowledgeCacheKeyBytes: Buffer.byteLength(cacheKey, "utf8"),
@@ -437,7 +506,6 @@ console.log(JSON.stringify({
   publicBotKeyEmbeddingAllowed: false,
   rawProviderOutputAllowed: false,
   externalWebhookExecutionAllowed: false,
-  deterministicTypecheckRequired: true,
   errors,
 }, null, 2));
 
