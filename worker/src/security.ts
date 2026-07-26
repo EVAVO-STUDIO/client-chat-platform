@@ -1,9 +1,8 @@
-export const CHAT_SECURITY_CONTRACT = "client_chat_security_v1" as const;
+export const CHAT_SECURITY_CONTRACT = "client_chat_security_v2" as const;
 export const ADMIN_REQUEST_MAX_BYTES = 64 * 1024;
 export const CHAT_REQUEST_MAX_BYTES = 128 * 1024;
 export const PUBLIC_TEXT_MAX_BYTES = 512 * 1024;
 export const PUBLIC_FETCH_TIMEOUT_MS = 10_000;
-export const WEBHOOK_TIMEOUT_MS = 8_000;
 
 const ADMIN_TOKEN_MIN_BYTES = 32;
 const ADMIN_TOKEN_MAX_BYTES = 256;
@@ -12,6 +11,7 @@ const MAX_JSON_NODES = 4_000;
 const MAX_JSON_ARRAY_LENGTH = 200;
 const MAX_JSON_STRING_LENGTH = 200_000;
 const MAX_JSON_KEY_LENGTH = 256;
+const MAX_PUBLIC_URL_LENGTH = 2_048;
 const BLOCKED_JSON_KEYS = new Set(["__proto__", "prototype", "constructor"]);
 const REDIRECT_STATUSES = new Set([301, 302, 303, 307, 308]);
 const BLOCKED_HOST_SUFFIXES = [
@@ -24,12 +24,14 @@ const BLOCKED_HOST_SUFFIXES = [
   ".invalid",
   ".example",
   ".onion",
+  ".arpa",
 ];
 const BLOCKED_EXACT_HOSTS = new Set([
   "localhost",
   "localhost.localdomain",
   "metadata.google.internal",
 ]);
+const LOCAL_DEVELOPMENT_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 const SENSITIVE_QUERY_KEYS = new Set([
   "access_token",
   "api_key",
@@ -45,14 +47,6 @@ const SENSITIVE_QUERY_KEYS = new Set([
   "signature",
   "sig",
   "token",
-]);
-const SHARED_HOSTING_WILDCARD_SUFFIXES = new Set([
-  "vercel.app",
-  "netlify.app",
-  "pages.dev",
-  "workers.dev",
-  "github.io",
-  "web.app",
 ]);
 
 export type BoundedJsonResult =
@@ -88,7 +82,13 @@ function structuralJsonAllowed(value: unknown) {
     nodes += 1;
     if (nodes > MAX_JSON_NODES || depth > MAX_JSON_DEPTH) return false;
     if (typeof candidate === "string") return candidate.length <= MAX_JSON_STRING_LENGTH;
-    if (candidate === null || typeof candidate === "boolean" || typeof candidate === "number") return true;
+    if (
+      candidate === null ||
+      typeof candidate === "boolean" ||
+      typeof candidate === "number"
+    ) {
+      return true;
+    }
     if (Array.isArray(candidate)) {
       if (candidate.length > MAX_JSON_ARRAY_LENGTH) return false;
       return candidate.every((item) => visit(item, depth + 1));
@@ -144,6 +144,8 @@ export async function readBoundedJsonObject(
       }
       chunks.push(next.value);
     }
+  } catch {
+    return { ok: false, status: 400, error: "invalid_utf8_body" };
   } finally {
     reader.releaseLock();
   }
@@ -182,20 +184,24 @@ function credentialBytes(value: string) {
   return new TextEncoder().encode(value);
 }
 
-function credentialShapeAllowed(value: string) {
-  if (!value || /\s/.test(value)) return false;
+function boundedSecretShape(value: unknown, minimumBytes: number, maximumBytes: number) {
+  if (typeof value !== "string" || !value || /\s/.test(value)) return false;
   const bytes = credentialBytes(value).byteLength;
-  return bytes >= ADMIN_TOKEN_MIN_BYTES && bytes <= ADMIN_TOKEN_MAX_BYTES;
+  return bytes >= minimumBytes && bytes <= maximumBytes;
+}
+
+export function configuredAdminTokenAllowed(value: unknown): value is string {
+  return boundedSecretShape(value, ADMIN_TOKEN_MIN_BYTES, ADMIN_TOKEN_MAX_BYTES);
 }
 
 function exactBearerToken(request: Request) {
   const authorization = request.headers.get("authorization") || "";
   if (!authorization.startsWith("Bearer ")) return null;
   const token = authorization.slice("Bearer ".length);
-  return credentialShapeAllowed(token) ? token : null;
+  return configuredAdminTokenAllowed(token) ? token : null;
 }
 
-async function sha256(value: string) {
+async function sha256Bytes(value: string) {
   const digest = await crypto.subtle.digest("SHA-256", credentialBytes(value));
   return new Uint8Array(digest);
 }
@@ -209,15 +215,39 @@ function fixedDigestEqual(left: Uint8Array, right: Uint8Array) {
   return difference === 0;
 }
 
-export async function isAdminRequestAuthorized(request: Request, configuredToken: unknown) {
-  const expected = typeof configuredToken === "string" ? configuredToken : "";
-  const provided = exactBearerToken(request);
-  if (!credentialShapeAllowed(expected) || !provided) return false;
+export async function boundedSecretEqual(
+  provided: unknown,
+  expected: unknown,
+  minimumBytes: number,
+  maximumBytes: number,
+) {
+  if (
+    !boundedSecretShape(provided, minimumBytes, maximumBytes) ||
+    !boundedSecretShape(expected, minimumBytes, maximumBytes)
+  ) {
+    return false;
+  }
   const [providedDigest, expectedDigest] = await Promise.all([
-    sha256(provided),
-    sha256(expected),
+    sha256Bytes(provided as string),
+    sha256Bytes(expected as string),
   ]);
   return fixedDigestEqual(providedDigest, expectedDigest);
+}
+
+export async function isAdminRequestAuthorized(request: Request, configuredToken: unknown) {
+  const provided = exactBearerToken(request);
+  if (!provided) return false;
+  return boundedSecretEqual(
+    provided,
+    configuredToken,
+    ADMIN_TOKEN_MIN_BYTES,
+    ADMIN_TOKEN_MAX_BYTES,
+  );
+}
+
+export async function sha256Hex(value: string) {
+  const digest = await sha256Bytes(value);
+  return [...digest].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
 function normalizeHostname(url: URL) {
@@ -270,16 +300,21 @@ function publicHostname(hostname: string) {
   return hostname.includes(".");
 }
 
+function localDevelopmentHostname(hostname: string) {
+  return LOCAL_DEVELOPMENT_HOSTS.has(hostname);
+}
+
 function hasSensitiveQuery(url: URL) {
   for (const key of url.searchParams.keys()) {
-    if (SENSITIVE_QUERY_KEYS.has(key.toLowerCase())) return true;
+    const normalized = key.toLowerCase().replace(/[-.]/g, "_");
+    if (SENSITIVE_QUERY_KEYS.has(normalized)) return true;
   }
   return false;
 }
 
 export function normalizePublicHttpsUrl(raw: unknown, base?: string) {
   const source = String(raw || "").trim();
-  if (!source) return null;
+  if (!source || source.length > MAX_PUBLIC_URL_LENGTH) return null;
   try {
     const url = base ? new URL(source, base) : new URL(source);
     if (url.protocol !== "https:" || url.username || url.password) return null;
@@ -294,30 +329,20 @@ export function normalizePublicHttpsUrl(raw: unknown, base?: string) {
 
 export function normalizeAllowedOrigin(raw: unknown) {
   const source = String(raw || "").trim();
-  if (!source) return null;
-  if (source.includes("*")) {
-    const match = /^https:\/\/\*\.([a-z0-9.-]+)$/i.exec(source);
-    if (!match) return null;
-    const suffix = match[1].toLowerCase().replace(/\.$/, "");
-    if (
-      SHARED_HOSTING_WILDCARD_SUFFIXES.has(suffix) ||
-      suffix.split(".").length < 2 ||
-      !publicHostname(suffix)
-    ) {
-      return null;
-    }
-    return `https://*.${suffix}`;
-  }
+  if (!source || source.length > 512 || source.includes("*")) return null;
   try {
     const url = new URL(source);
+    const hostname = normalizeHostname(url);
+    const securePublicOrigin = url.protocol === "https:" && publicHostname(hostname);
+    const localDevelopmentOrigin =
+      url.protocol === "http:" && localDevelopmentHostname(hostname);
     if (
-      url.protocol !== "https:" ||
+      (!securePublicOrigin && !localDevelopmentOrigin) ||
       url.username ||
       url.password ||
       url.search ||
       url.hash ||
-      url.pathname !== "/" ||
-      !publicHostname(normalizeHostname(url))
+      url.pathname !== "/"
     ) {
       return null;
     }
@@ -327,11 +352,29 @@ export function normalizeAllowedOrigin(raw: unknown) {
   }
 }
 
-async function readResponseBody(response: Response, maximumBytes: number) {
-  const declared = Number(response.headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > maximumBytes) {
-    await response.body?.cancel().catch(() => undefined);
-    return null;
+function responseLooksBinary(bytes: Uint8Array) {
+  const sample = bytes.subarray(0, Math.min(bytes.byteLength, 8_192));
+  if (sample.includes(0)) return true;
+  let controls = 0;
+  for (const byte of sample) {
+    if (byte < 32 && byte !== 9 && byte !== 10 && byte !== 13) controls += 1;
+  }
+  return sample.byteLength > 0 && controls / sample.byteLength > 0.05;
+}
+
+async function readResponseBody(
+  response: Response,
+  maximumBytes: number,
+  deadline: number,
+  controller: AbortController,
+) {
+  const declared = response.headers.get("content-length");
+  if (declared !== null) {
+    if (!/^\d+$/.test(declared) || Number(declared) > maximumBytes) {
+      controller.abort();
+      await response.body?.cancel().catch(() => undefined);
+      return null;
+    }
   }
   if (!response.body) return new Uint8Array();
 
@@ -340,16 +383,24 @@ async function readResponseBody(response: Response, maximumBytes: number) {
   let total = 0;
   try {
     while (true) {
+      if (Date.now() >= deadline) {
+        controller.abort();
+        await reader.cancel("response_timeout").catch(() => undefined);
+        return null;
+      }
       const next = await reader.read();
       if (next.done) break;
       if (!next.value) continue;
       total += next.value.byteLength;
       if (total > maximumBytes) {
+        controller.abort();
         await reader.cancel("response_too_large").catch(() => undefined);
         return null;
       }
       chunks.push(next.value);
     }
+  } catch {
+    return null;
   } finally {
     reader.releaseLock();
   }
@@ -396,7 +447,7 @@ export async function fetchBoundedPublicText(
     const controller = new AbortController();
     const remaining = Math.max(1, deadline - Date.now());
     const timeout = setTimeout(() => controller.abort(), remaining);
-    let response: Response;
+    let response: Response | undefined;
     try {
       response = await fetch(currentUrl, {
         method: "GET",
@@ -404,88 +455,78 @@ export async function fetchBoundedPublicText(
         signal: controller.signal,
         headers: {
           Accept: "text/html,text/plain,application/xhtml+xml;q=0.9",
-          "User-Agent": "EVAVO-Client-Chat/1.0 (+https://evavo.com.au)",
+          "User-Agent": "EVAVO-Client-Chat/2.0 (+https://evavo.com.au)",
         },
       });
+
+      if (REDIRECT_STATUSES.has(response.status)) {
+        const location = response.headers.get("location");
+        await response.body?.cancel().catch(() => undefined);
+        if (!location || redirects >= maximumRedirects) return null;
+        const nextUrl = normalizePublicHttpsUrl(location, currentUrl);
+        if (!nextUrl) return null;
+        currentUrl = nextUrl;
+        redirects += 1;
+        continue;
+      }
+      if (!response.ok) {
+        await response.body?.cancel().catch(() => undefined);
+        return null;
+      }
+
+      const contentType = String(response.headers.get("content-type") || "").toLowerCase();
+      if (
+        contentType &&
+        !/(?:text\/html|text\/plain|application\/xhtml\+xml)/.test(contentType)
+      ) {
+        await response.body?.cancel().catch(() => undefined);
+        return null;
+      }
+      const bytes = await readResponseBody(
+        response,
+        maximumBytes,
+        deadline,
+        controller,
+      );
+      if (!bytes || Date.now() > deadline || responseLooksBinary(bytes)) return null;
+      try {
+        return {
+          text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
+          finalUrl: currentUrl,
+          contentType,
+          bytes: bytes.byteLength,
+          redirects,
+        } as const;
+      } catch {
+        return null;
+      }
     } catch {
+      await response?.body?.cancel().catch(() => undefined);
+      return null;
+    } finally {
       clearTimeout(timeout);
-      return null;
     }
-    clearTimeout(timeout);
-
-    if (REDIRECT_STATUSES.has(response.status)) {
-      const location = response.headers.get("location");
-      await response.body?.cancel().catch(() => undefined);
-      if (!location || redirects >= maximumRedirects) return null;
-      const nextUrl = normalizePublicHttpsUrl(location, currentUrl);
-      if (!nextUrl) return null;
-      currentUrl = nextUrl;
-      redirects += 1;
-      continue;
-    }
-    if (!response.ok) {
-      await response.body?.cancel().catch(() => undefined);
-      return null;
-    }
-
-    const contentType = String(response.headers.get("content-type") || "").toLowerCase();
-    if (contentType && !/(?:text\/html|text\/plain|application\/xhtml\+xml)/.test(contentType)) {
-      await response.body?.cancel().catch(() => undefined);
-      return null;
-    }
-    const bytes = await readResponseBody(response, maximumBytes);
-    if (!bytes || Date.now() > deadline) return null;
-    try {
-      return {
-        text: new TextDecoder("utf-8", { fatal: true }).decode(bytes),
-        finalUrl: currentUrl,
-        contentType,
-        bytes: bytes.byteLength,
-      } as const;
-    } catch {
-      return null;
-    }
-  }
-}
-
-export async function postPublicWebhook(
-  rawUrl: unknown,
-  body: string,
-  headers: Readonly<Record<string, string>>,
-) {
-  const url = normalizePublicHttpsUrl(rawUrl);
-  if (!url || body.length > 64 * 1024) return false;
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), WEBHOOK_TIMEOUT_MS);
-  try {
-    const response = await fetch(url, {
-      method: "POST",
-      redirect: "manual",
-      signal: controller.signal,
-      headers,
-      body,
-    });
-    await response.body?.cancel().catch(() => undefined);
-    return response.status >= 200 && response.status < 300;
-  } catch {
-    return false;
-  } finally {
-    clearTimeout(timeout);
   }
 }
 
 export const chatSecurityPosture = Object.freeze({
+  contract: CHAT_SECURITY_CONTRACT,
   boundedJsonBodies: true,
+  prototypePollutionKeysRejected: true,
   exactBearerAuthentication: true,
   legacyAdminHeaderAllowed: false,
   minimumAdminCredentialBytes: ADMIN_TOKEN_MIN_BYTES,
   maximumAdminCredentialBytes: ADMIN_TOKEN_MAX_BYTES,
   publicHttpsResearchOnly: true,
   privateNetworkResearchAllowed: false,
+  dnsRebindingMitigatedByRuntimePublicFetchFlag: true,
   automaticRedirectFollowingAllowed: false,
+  redirectTargetsRevalidated: true,
   sensitiveQueryCredentialsAllowed: false,
-  sharedHostingWildcardOriginsAllowed: false,
+  wildcardBrowserOriginsAllowed: false,
+  localHttpOriginsDevelopmentOnly: true,
   responseBodiesBounded: true,
+  binaryResponsesAllowed: false,
   fullOperationTimeoutRequired: true,
-  webhookRedirectsAllowed: false,
+  dormantWebhookHelperPresent: false,
 });
