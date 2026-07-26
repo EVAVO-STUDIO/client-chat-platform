@@ -38,7 +38,7 @@ concurrency:
 
 jobs:
   security:
-    name: Source, boundary and type contract
+    name: Source, boundary, type and bundle contract
     runs-on: ubuntu-latest
     timeout-minutes: 12
     defaults:
@@ -68,3 +68,6 @@ jobs:
 
       - name: Typecheck active Worker entrypoint
         run: npm run typecheck
+
+      - name: Bundle active Worker without deployment
+        run: npm run check:bundle
