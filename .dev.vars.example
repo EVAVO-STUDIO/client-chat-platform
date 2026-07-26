@@ -1,0 +1,10 @@
+# Copy this file to .dev.vars for local Wrangler development.
+# Never commit .dev.vars or any real token value.
+
+# Required server-only administrator credential.
+# Use a random 32-256 byte value without whitespace.
+ADMIN_TOKEN=replace_me_with_a_random_server_only_token
+
+# Optional comma-separated exact origins for a hosted admin console.
+# Localhost and 127.0.0.1 are already accepted by the hardened router for development.
+ADMIN_ALLOWED_ORIGINS=http://localhost:4173
