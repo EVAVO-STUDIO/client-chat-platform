@@ -8,7 +8,7 @@ The active boundary is implemented by:
 
 ```text
 worker/src/runtimeStorageBoundary.ts
-client_chat_runtime_storage_boundary_v1
+client_chat_runtime_storage_boundary_v3
 ```
 
 It runs outside the legacy compatibility router and applies before configuration writes reach KV and before configuration responses reach the administrator client.
@@ -30,15 +30,21 @@ __EVAVO_CLEAR_BOT_KEY__
 
 The reserved value is interpreted by the runtime storage boundary and is never persisted. This prevents a read-edit-write administration workflow from silently deleting a key merely because config reads no longer return the secret.
 
+The legacy `cfg:index` record is not treated as an individual bot configuration. It passes through the storage wrapper unchanged so list compatibility remains intact. Other `cfg:` keys must match the reviewed bot-ID key pattern; malformed configuration keys and non-text configuration values fail closed.
+
 ## Response projection
 
 Successful `/admin/get` and `/admin/upsert` responses are projected before they leave the Worker:
 
 - `botKey` is removed;
-- `botKeyConfigured` reports only whether a valid key exists;
+- `botKeyConfigured` reports only whether a valid key exists when that state can be established;
+- `botKeyStatus` is `configured`, `not_configured` or `unknown`;
+- `/admin/upsert` checks the stored record after the protected write so a preserved key is reported truthfully;
+- if the stored-record verification read is unavailable, the response uses `unknown` rather than falsely claiming the key was removed;
 - retired webhook URL, authorization-header and secret fields are removed;
 - action types are restricted to `open_contact`, `create_lead` and `none`;
 - response bodies remain bounded and strict UTF-8 JSON;
+- malformed internal JSON fails closed with a bounded internal-response error;
 - the response remains `Cache-Control: no-store`.
 
 The browser console also redacts secret-shaped fields before displaying response JSON. That client-side redaction is defence in depth, not the authoritative security boundary.
@@ -57,7 +63,7 @@ The legacy compatibility engine derives its chat rate-limit key from the bot ID,
 rl:v2:<sha256>
 ```
 
-before the key reaches `KB_CACHE`.
+before the key reaches `KB_CACHE`. A key already using the `rl:v2:` form is not hashed again.
 
 This prevents the raw client address from appearing in KV key names. The hash is pseudonymous rather than anonymous, and the KV limiter remains best-effort because Workers KV does not provide a transactional increment primitive. It must not be described as a globally exact abuse-control counter.
 
