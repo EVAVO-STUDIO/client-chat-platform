@@ -94,7 +94,7 @@
           <div class="span-4">
             <label>Server bot key (optional)
               <input id="botKey" type="password" autocomplete="off" spellcheck="false" minlength="16" maxlength="256" placeholder="Enter a new key to set or rotate" />
-              <span id="botKeyState" class="help">Blank creates no key for a new bot and preserves an existing key after loading.</span>
+              <span id="botKeyState" class="help" role="status" aria-live="polite">State not loaded. Blank creates no key for a new bot and preserves an existing key after loading.</span>
             </label>
             <label class="check" style="margin-top:10px"><input id="clearBotKey" type="checkbox" />Clear the existing server bot key on save</label>
           </div>
@@ -342,7 +342,7 @@
   }
 
   function redact(value, key = "") {
-    if (key === "botKeyConfigured") return value;
+    if (key === "botKeyConfigured" || key === "botKeyStatus") return value;
     if (/token|secret|password|botkey|authorization/i.test(key)) return "[redacted]";
     if (Array.isArray(value)) return value.map((item) => redact(item));
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, nested]) => [name, redact(nested, name)]));
@@ -413,6 +413,16 @@
     }
   }
 
+  function botKeyStateMessage(config) {
+    if (config.botKeyStatus === "configured" || config.botKeyConfigured === true) {
+      return "An existing server bot key is configured. Blank preserves it; enter a replacement to rotate it, or select Clear existing key.";
+    }
+    if (config.botKeyStatus === "not_configured" || config.botKeyConfigured === false) {
+      return "No server bot key is configured. Blank keeps browser-only access; enter a key to enable trusted non-browser chat clients.";
+    }
+    return "The Worker could not confirm the current bot-key state. Blank preserves any stored key. Clear it only when you intentionally want browser-only access.";
+  }
+
   function applyConfig(config) {
     setText("siteName", config.siteName);
     setText("contactUrl", config.contactUrl || "/contact");
@@ -422,9 +432,8 @@
     setText("allowedOrigins", (config.allowedOrigins || []).join("\n"));
     setText("botKey", "");
     byId("clearBotKey").checked = false;
-    byId("botKeyState").textContent = config.botKeyConfigured === true
-      ? "An existing server bot key is configured. Blank preserves it; enter a replacement to rotate it, or select Clear existing key."
-      : "No server bot key is configured. Blank keeps browser-only access; enter a key to enable trusted non-browser chat clients.";
+    byId("botKey").disabled = false;
+    byId("botKeyState").textContent = botKeyStateMessage(config);
     setText("knowledge", config.knowledge);
     setText("knowledgeUrls", (config.knowledgeUrls || []).join("\n"));
     byId("ragEnabled").checked = config.ragEnabled === true;
@@ -442,6 +451,15 @@
     const actions = Array.isArray(config.actions?.allowedActionTypes) ? config.actions.allowedActionTypes : [];
     byId("allowContact").checked = actions.includes("open_contact");
     byId("allowLead").checked = actions.includes("create_lead");
+  }
+
+  function syncBotKeyControls() {
+    const clearing = byId("clearBotKey").checked;
+    byId("botKey").disabled = clearing;
+    if (clearing) {
+      setText("botKey", "");
+      byId("botKeyState").textContent = "The existing server bot key will be cleared when this reviewed configuration is saved.";
+    }
   }
 
   async function run(label, operation) {
@@ -491,6 +509,8 @@
   byId("listBtn").addEventListener("click", () => {
     void run("Listing bot IDs", () => request("/admin/list", {})).catch(() => undefined);
   });
+
+  byId("clearBotKey").addEventListener("change", syncBotKeyControls);
 })();
 </script>
 </body>
