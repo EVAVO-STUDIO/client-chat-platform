@@ -1,11 +1,13 @@
 import { sha256Hex } from "./security";
 
 export const RUNTIME_STORAGE_BOUNDARY_CONTRACT =
-  "client_chat_runtime_storage_boundary_v1" as const;
+  "client_chat_runtime_storage_boundary_v2" as const;
 
 export const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
 
 const BOT_CONFIG_PREFIX = "cfg:";
+const BOT_CONFIG_INDEX_KEY = "cfg:index";
+const BOT_CONFIG_KEY_PATTERN = /^cfg:[A-Za-z0-9_-]{1,64}$/;
 const LEGACY_RATE_LIMIT_PREFIX = "rl:";
 const HASHED_RATE_LIMIT_PREFIX = "rl:v2:";
 const MAX_ADMIN_RESPONSE_BYTES = 512 * 1024;
@@ -110,12 +112,14 @@ export function withProtectedBotConfigWrites(binding: KVNamespace) {
           payload: string | ArrayBuffer | ArrayBufferView | ReadableStream,
           options?: KVNamespacePutOptions,
         ) => {
-          if (
-            typeof key !== "string" ||
-            !key.startsWith(BOT_CONFIG_PREFIX) ||
-            typeof payload !== "string"
-          ) {
+          if (typeof key !== "string" || !key.startsWith(BOT_CONFIG_PREFIX)) {
             return current.put(key, payload, options);
+          }
+          if (key === BOT_CONFIG_INDEX_KEY) {
+            return current.put(key, payload, options);
+          }
+          if (!BOT_CONFIG_KEY_PATTERN.test(key) || typeof payload !== "string") {
+            throw new Error("invalid_bot_configuration_write");
           }
           const protectedValue = await protectedConfigValue(
             current,
@@ -131,6 +135,7 @@ export function withProtectedBotConfigWrites(binding: KVNamespace) {
 }
 
 async function privacySafeRateLimitKey(key: string) {
+  if (key.startsWith(HASHED_RATE_LIMIT_PREFIX)) return key;
   if (!key.startsWith(LEGACY_RATE_LIMIT_PREFIX)) return key;
   return `${HASHED_RATE_LIMIT_PREFIX}${await sha256Hex(
     `client-chat-rate-limit\u0000${key}`,
@@ -171,8 +176,8 @@ export function withHashedLegacyRateLimitKeys(binding: KVNamespace) {
   }) as KVNamespace;
 }
 
-function projectAdminConfig(value: unknown) {
-  if (!value || typeof value !== "object" || Array.isArray(value)) return value;
+function projectAdminConfig(value: unknown): JsonObject | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as JsonObject;
   const projected = scrubRetiredConfigSecrets(source);
   projected.botKeyConfigured = botKeyAllowed(source.botKey);
@@ -272,15 +277,29 @@ export async function redactAdminConfigResponse(
   let payload: JsonObject;
   try {
     const parsed = JSON.parse(source) as unknown;
-    payload = parsed && typeof parsed === "object" && !Array.isArray(parsed)
-      ? (parsed as JsonObject)
-      : { ok: false, error: "invalid_internal_response" };
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      return replacementResponse(response, 502, {
+        ok: false,
+        error: "invalid_internal_response",
+      });
+    }
+    payload = parsed as JsonObject;
   } catch {
-    payload = { ok: false, error: "invalid_internal_response" };
+    return replacementResponse(response, 502, {
+      ok: false,
+      error: "invalid_internal_response",
+    });
   }
 
   if (payload.cfg !== undefined) {
-    payload.cfg = projectAdminConfig(payload.cfg);
+    const projected = projectAdminConfig(payload.cfg);
+    if (!projected) {
+      return replacementResponse(response, 502, {
+        ok: false,
+        error: "invalid_internal_response",
+      });
+    }
+    payload.cfg = projected;
   }
   payload.configSecretsRedacted = true;
   return replacementResponse(response, response.status, payload);
@@ -288,13 +307,17 @@ export async function redactAdminConfigResponse(
 
 export const runtimeStorageBoundaryPosture = Object.freeze({
   contract: RUNTIME_STORAGE_BOUNDARY_CONTRACT,
+  botConfigIndexBypassesObjectProjection: true,
+  malformedConfigKeysRejected: true,
   rawBotKeyReturnedByAdminConfigRoutes: false,
   blankBotKeyUpdateClearsExistingKey: false,
   explicitBotKeyClearSentinelRequired: true,
   retiredWebhookCredentialsReturned: false,
   retiredWebhookCredentialsPersistedOnUpsert: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
+  alreadyHashedRateLimitKeysRehashed: false,
   hashedLegacyRateLimitKeyPrefix: HASHED_RATE_LIMIT_PREFIX,
   rateLimitIdentifierPseudonymousNotAnonymous: true,
   responseBodiesBoundedBeforeProjection: true,
+  invalidJsonAdminResponseAccepted: false,
 });
