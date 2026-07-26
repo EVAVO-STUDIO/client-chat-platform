@@ -8,7 +8,9 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check": "npm run check:security && npm run typecheck",
     "predeploy": "npm run check",
-    "deploy": "wrangler deploy -c wrangler.jsonc"
+    "deploy": "wrangler deploy -c wrangler.jsonc",
+    "tail": "wrangler tail -c wrangler.jsonc",
+    "whoami": "wrangler whoami"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
