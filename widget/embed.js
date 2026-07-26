@@ -1,5 +1,5 @@
 // EVAVO Client Chat Platform embeddable widget.
-// Example:
+//
 // <script
 //   src="https://static.example.com/embed.js"
 //   data-api-base="https://client-chat-platform.example.workers.dev"
@@ -14,19 +14,9 @@
   const script = document.currentScript;
   if (!script) return;
 
-  const botId = String(
-    script.getAttribute("data-bot-id") || script.getAttribute("data-bot") || "",
-  ).trim();
-  if (!/^[A-Za-z0-9_-]{1,64}$/.test(botId)) return;
-
-  const registryKey = "__EVAVO_CLIENT_CHAT_WIDGETS__";
-  const registry = window[registryKey] instanceof Set ? window[registryKey] : new Set();
-  window[registryKey] = registry;
-  if (registry.has(botId)) return;
-
   function apiOrigin(value) {
     try {
-      const url = new URL(value);
+      const url = new URL(String(value || ""));
       const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
       const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
       const protocolAllowed = url.protocol === "https:" || (url.protocol === "http:" && local);
@@ -44,17 +34,6 @@
     } catch {
       return null;
     }
-  }
-
-  const scriptOrigin = (() => {
-    try { return new URL(script.src, window.location.href).origin; } catch { return ""; }
-  })();
-  const base = apiOrigin(script.getAttribute("data-api-base") || scriptOrigin);
-  if (!base) return;
-
-  function boundedText(value, fallback, maximum) {
-    const candidate = String(value || "").trim();
-    return (candidate || fallback).slice(0, maximum);
   }
 
   function safeContactUrl(value) {
@@ -77,6 +56,35 @@
     }
   }
 
+  function boundedText(value, fallback, maximum) {
+    const candidate = String(value || "").trim();
+    return (candidate || fallback).slice(0, maximum);
+  }
+
+  const botId = String(
+    script.getAttribute("data-bot-id") || script.getAttribute("data-bot") || "",
+  ).trim();
+  if (!/^[A-Za-z0-9_-]{1,64}$/.test(botId)) return;
+
+  const scriptOrigin = (() => {
+    try {
+      return new URL(script.src, window.location.href).origin;
+    } catch {
+      return "";
+    }
+  })();
+  const base = apiOrigin(script.getAttribute("data-api-base") || scriptOrigin);
+  if (!base) return;
+
+  const registryKey = "__EVAVO_CLIENT_CHAT_WIDGETS__";
+  const registry = window[registryKey] instanceof Set
+    ? window[registryKey]
+    : new Set();
+  window[registryKey] = registry;
+  const registration = `${base}|${botId}`;
+  if (registry.has(registration)) return;
+  registry.add(registration);
+
   const title = boundedText(script.getAttribute("data-title"), "Chat", 80);
   const greeting = boundedText(
     script.getAttribute("data-greeting"),
@@ -85,7 +93,9 @@
   );
   const contactUrl = safeContactUrl(script.getAttribute("data-contact"));
   const accentCandidate = String(script.getAttribute("data-accent") || "").trim();
-  const accent = /^#[0-9a-f]{6}$/i.test(accentCandidate) ? accentCandidate : "#ff244e";
+  const accent = /^#[0-9a-f]{6}$/i.test(accentCandidate)
+    ? accentCandidate
+    : "#ff244e";
   const position = script.getAttribute("data-position") === "left" ? "left" : "right";
   const styleNonce = String(script.getAttribute("data-style-nonce") || "").trim();
   const instanceId = `evavo-chat-${
@@ -100,39 +110,40 @@
   const style = document.createElement("style");
   if (styleNonce) style.setAttribute("nonce", styleNonce);
   style.textContent = `
-    :host{all:initial;--evavo-chat-accent:${accent};--evavo-chat-bg:#0a0d12;--evavo-chat-panel:#111722;--evavo-chat-text:#f4f7fb;--evavo-chat-muted:#9aa6b4;--evavo-chat-line:#2a3544;--evavo-chat-focus:#ffd0d9;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark}
+    :host{all:initial;--accent:${accent};--bg:#0a0d12;--panel:#111722;--text:#f4f7fb;--muted:#9aa6b4;--line:#2a3544;--focus:#ffd0d9;font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;color-scheme:dark}
     *,*::before,*::after{box-sizing:border-box}
     button,textarea{font:inherit}
-    button:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid var(--evavo-chat-focus);outline-offset:2px}
-    .launcher{position:fixed;z-index:2147483000;bottom:18px;${position}:18px;min-width:58px;height:48px;border:1px solid color-mix(in srgb,var(--evavo-chat-accent) 58%,white 12%);border-radius:999px;background:var(--evavo-chat-accent);color:#090a0d;padding:0 17px;font-size:13px;font-weight:900;letter-spacing:.02em;box-shadow:0 18px 48px rgba(0,0,0,.38);cursor:pointer;transition:transform .16s ease,filter .16s ease}
+    button:focus-visible,textarea:focus-visible,a:focus-visible{outline:3px solid var(--focus);outline-offset:2px}
+    .launcher{position:fixed;z-index:2147483000;bottom:18px;${position}:18px;min-width:58px;height:48px;border:1px solid color-mix(in srgb,var(--accent) 58%,white 12%);border-radius:999px;background:var(--accent);color:#090a0d;padding:0 17px;font-size:13px;font-weight:900;box-shadow:0 18px 48px rgba(0,0,0,.38);cursor:pointer;transition:transform .16s ease,filter .16s ease}
     .launcher:hover{filter:brightness(1.08);transform:translateY(-1px)}
     .launcher[aria-expanded="true"]{background:#fff;border-color:#fff}
-    .panel{position:fixed;z-index:2147483000;bottom:78px;${position}:18px;width:min(390px,calc(100vw - 24px));height:min(620px,calc(100dvh - 104px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--evavo-chat-line);border-radius:18px;background:var(--evavo-chat-bg);color:var(--evavo-chat-text);box-shadow:0 28px 90px rgba(0,0,0,.52)}
+    .panel{position:fixed;z-index:2147483000;bottom:78px;${position}:18px;width:min(390px,calc(100vw - 24px));height:min(620px,calc(100dvh - 104px));display:flex;flex-direction:column;overflow:hidden;border:1px solid var(--line);border-radius:18px;background:var(--bg);color:var(--text);box-shadow:0 28px 90px rgba(0,0,0,.52)}
     .panel[hidden]{display:none}
-    .header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px 14px 13px;border-bottom:1px solid var(--evavo-chat-line);background:linear-gradient(180deg,var(--evavo-chat-panel),var(--evavo-chat-bg))}
+    .header{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:14px;border-bottom:1px solid var(--line);background:linear-gradient(180deg,var(--panel),var(--bg))}
     .identity{min-width:0;display:flex;align-items:center;gap:10px}
-    .mark{width:9px;height:9px;flex:0 0 auto;border-radius:50%;background:var(--evavo-chat-accent);box-shadow:0 0 0 5px color-mix(in srgb,var(--evavo-chat-accent) 18%,transparent)}
-    .title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:850;letter-spacing:.01em}
-    .close{width:38px;height:38px;flex:0 0 auto;border:1px solid var(--evavo-chat-line);border-radius:10px;background:#171e29;color:var(--evavo-chat-text);font-size:21px;line-height:1;cursor:pointer}
+    .mark{width:9px;height:9px;flex:0 0 auto;border-radius:50%;background:var(--accent);box-shadow:0 0 0 5px color-mix(in srgb,var(--accent) 18%,transparent)}
+    .title{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:13px;font-weight:850}
+    .close{width:38px;height:38px;flex:0 0 auto;border:1px solid var(--line);border-radius:10px;background:#171e29;color:var(--text);font-size:21px;line-height:1;cursor:pointer}
     .log{flex:1;min-height:0;overflow:auto;overscroll-behavior:contain;padding:15px;display:flex;flex-direction:column;gap:11px;scrollbar-width:thin;scrollbar-color:#3b485a transparent}
     .row{display:flex}.row.user{justify-content:flex-end}.row.assistant{justify-content:flex-start}
-    .bubble{max-width:86%;border:1px solid var(--evavo-chat-line);border-radius:16px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.48}
-    .user .bubble{border-color:color-mix(in srgb,var(--evavo-chat-accent) 58%,black);background:var(--evavo-chat-accent);color:#07080b;border-bottom-right-radius:5px}
-    .assistant .bubble{background:var(--evavo-chat-panel);color:var(--evavo-chat-text);border-bottom-left-radius:5px}
-    .meta{min-height:25px;padding:0 14px 9px;color:var(--evavo-chat-muted);font-size:11px;line-height:1.45}
+    .bubble{max-width:86%;border:1px solid var(--line);border-radius:16px;padding:10px 12px;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13px;line-height:1.48}
+    .user .bubble{border-color:color-mix(in srgb,var(--accent) 58%,black);background:var(--accent);color:#07080b;border-bottom-right-radius:5px}
+    .assistant .bubble{background:var(--panel);color:var(--text);border-bottom-left-radius:5px}
+    .meta{min-height:25px;padding:0 14px 9px;color:var(--muted);font-size:11px;line-height:1.45}
     .meta.error{color:#ff9aac}
-    .action{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--evavo-chat-line);border-radius:999px;background:#171f2b;color:var(--evavo-chat-text);padding:8px 12px;font-size:12px;font-weight:800;text-decoration:none;cursor:pointer}
-    .action.primary{border-color:var(--evavo-chat-accent);background:var(--evavo-chat-accent);color:#08090c}
+    .action{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--line);border-radius:999px;background:#171f2b;color:var(--text);padding:8px 12px;font-size:12px;font-weight:800;text-decoration:none;cursor:pointer}
+    .action.primary{border-color:var(--accent);background:var(--accent);color:#08090c}
     .action:disabled{cursor:not-allowed;opacity:.55}
-    .consent{display:grid;gap:8px;border:1px solid var(--evavo-chat-line);border-left:3px solid var(--evavo-chat-accent);border-radius:12px;background:#101722;padding:10px 11px;color:var(--evavo-chat-text)}
+    .consent{display:grid;gap:8px;border:1px solid var(--line);border-left:3px solid var(--accent);border-radius:12px;background:#101722;padding:10px 11px;color:var(--text)}
     .consent-copy{margin:0;color:#cdd6e2;font-size:11px;line-height:1.5}
-    .consent-email{color:#fff;font-weight:800;overflow-wrap:anywhere}
+    .consent-strong{color:#fff;font-weight:800;overflow-wrap:anywhere}
+    .consent-message{margin:0;border-left:2px solid #39475a;padding-left:8px;color:#aeb9c7;font-size:11px;line-height:1.45;white-space:pre-wrap;overflow-wrap:anywhere}
     .consent-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
-    .composer{border-top:1px solid var(--evavo-chat-line);background:var(--evavo-chat-panel);padding:11px}
+    .composer{border-top:1px solid var(--line);background:var(--panel);padding:11px}
     .input-row{display:flex;align-items:flex-end;gap:8px}
-    .input{flex:1;min-height:42px;max-height:126px;resize:none;border:1px solid var(--evavo-chat-line);border-radius:12px;background:#0c1119;color:var(--evavo-chat-text);padding:10px 11px;outline:none;font-size:13px;line-height:1.4}
+    .input{flex:1;min-height:42px;max-height:126px;resize:none;border:1px solid var(--line);border-radius:12px;background:#0c1119;color:var(--text);padding:10px 11px;outline:none;font-size:13px;line-height:1.4}
     .input::placeholder{color:#748091}
-    .send{width:44px;height:44px;flex:0 0 auto;border:0;border-radius:12px;background:var(--evavo-chat-accent);color:#08090c;font-size:17px;font-weight:950;cursor:pointer}
+    .send{width:44px;height:44px;flex:0 0 auto;border:0;border-radius:12px;background:var(--accent);color:#08090c;font-size:17px;font-weight:950;cursor:pointer}
     .send:disabled{cursor:not-allowed;filter:grayscale(.55);opacity:.5}
     .privacy{margin:7px 2px 0;color:#7f8b9a;font-size:10px;line-height:1.35}
     .sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
@@ -215,7 +226,6 @@
   panel.append(header, log, meta, composer);
   shadow.append(style, launcher, panel);
   document.body.appendChild(host);
-  registry.add(botId);
 
   let open = false;
   let busy = false;
@@ -234,7 +244,8 @@
 
   function addBubble(role, content, persist = true) {
     const safeRole = role === "user" ? "user" : "assistant";
-    const safeContent = String(content || "").trim().slice(0, 8000);
+    const maximum = safeRole === "user" ? 2000 : 8000;
+    const safeContent = String(content || "").trim().slice(0, maximum);
     if (!safeContent) return;
     const row = document.createElement("div");
     row.className = `row ${safeRole}`;
@@ -277,7 +288,10 @@
 
   async function readJsonBounded(response, maximumBytes = 65536) {
     const declared = response.headers.get("content-length");
-    if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > maximumBytes)) {
+    if (
+      declared !== null &&
+      (!/^\d+$/.test(declared) || Number(declared) > maximumBytes)
+    ) {
       throw new Error("invalid_response");
     }
     if (!response.body) return {};
@@ -307,7 +321,9 @@
     }
     const source = new TextDecoder("utf-8", { fatal: true }).decode(combined);
     const value = JSON.parse(source);
-    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("invalid_response");
+    if (!value || typeof value !== "object" || Array.isArray(value)) {
+      throw new Error("invalid_response");
+    }
     return value;
   }
 
@@ -338,34 +354,100 @@
   }
 
   function leadText(value, maximum) {
-    if (typeof value !== "string") return "";
-    return value.trim().slice(0, maximum);
+    return typeof value === "string" ? value.trim().slice(0, maximum) : "";
   }
 
-  function normalizedLeadPayload(value) {
-    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-    const email = leadText(value.email || value.contactEmail, 320).toLowerCase();
-    const message = leadText(value.message || value.summary || value.details, 2000);
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 10) {
-      return null;
+  function evidenceText(value) {
+    return value.trim().replace(/\s+/g, " ").toLowerCase();
+  }
+
+  function userEvidence() {
+    return messages
+      .filter((message) => message.role === "user")
+      .map((message) => message.content.trim().slice(0, 2000))
+      .filter(Boolean)
+      .slice(-20);
+  }
+
+  function textSupported(value, evidence) {
+    const normalized = evidenceText(value);
+    return Boolean(
+      normalized &&
+      evidence.some((message) => evidenceText(message).includes(normalized)),
+    );
+  }
+
+  function phoneSupported(value, evidence) {
+    const digits = value.replace(/\D/g, "");
+    return Boolean(
+      digits.length >= 6 &&
+      evidence.some((message) => message.replace(/\D/g, "").includes(digits)),
+    );
+  }
+
+  function emailFromEvidence(payload, evidence) {
+    const proposed =
+      leadText(payload && payload.email, 320) ||
+      leadText(payload && payload.contactEmail, 320);
+    if (
+      /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(proposed) &&
+      textSupported(proposed, evidence)
+    ) {
+      return proposed.toLowerCase();
     }
-    const phone = leadText(value.phone, 40);
+    for (const message of [...evidence].reverse()) {
+      const match = message.match(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/i);
+      if (match) return match[0].toLowerCase().slice(0, 320);
+    }
+    return "";
+  }
+
+  function messageFromEvidence(payload, evidence) {
+    const proposed =
+      leadText(payload && payload.message, 2000) ||
+      leadText(payload && payload.summary, 2000) ||
+      leadText(payload && payload.details, 2000);
+    if (proposed.length >= 10 && textSupported(proposed, evidence)) {
+      return proposed;
+    }
+    return [...evidence].reverse().find((message) => message.length >= 10) || "";
+  }
+
+  function optionalEvidenceField(payload, key, maximum, evidence) {
+    const value = leadText(payload && payload[key], maximum);
+    return value && textSupported(value, evidence) ? value : undefined;
+  }
+
+  function normalizedLeadProposal(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const evidence = userEvidence();
+    if (!evidence.length) return null;
+    const email = emailFromEvidence(value, evidence);
+    const message = messageFromEvidence(value, evidence);
+    if (!email || message.length < 10) return null;
+    const phoneCandidate = leadText(value.phone, 40);
+    const phone = phoneCandidate && phoneSupported(phoneCandidate, evidence)
+      ? phoneCandidate
+      : undefined;
     return {
-      name: leadText(value.name, 120) || undefined,
-      email,
-      phone: phone && phone.replace(/\D/g, "").length >= 6 ? phone : undefined,
-      company: leadText(value.company, 160) || undefined,
-      message,
-      sourcePath: window.location.pathname.slice(0, 512) || "/",
+      evidence,
+      lead: {
+        name: optionalEvidenceField(value, "name", 120, evidence),
+        email,
+        phone,
+        company: optionalEvidenceField(value, "company", 160, evidence),
+        message,
+        sourcePath: window.location.pathname.slice(0, 512) || "/",
+      },
     };
   }
 
-  async function submitLead(lead, button, cancel) {
+  async function submitLead(proposal, confirm, cancel) {
     if (busy || navigator.onLine === false) return;
     busy = true;
-    button.disabled = true;
+    confirm.disabled = true;
     cancel.disabled = true;
-    button.textContent = "Sharing…";
+    confirm.textContent = "Sharing…";
     updateControls();
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort("timeout"), 15000);
@@ -376,14 +458,26 @@
         credentials: "omit",
         referrerPolicy: "no-referrer",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ botId, consent: true, lead }),
+        body: JSON.stringify({
+          botId,
+          consent: true,
+          evidence: proposal.evidence,
+          lead: proposal.lead,
+        }),
         signal: controller.signal,
       });
       const data = await readJsonBounded(response, 32768).catch(() => ({}));
       if (!response.ok || data.ok !== true) {
-        throw Object.assign(new Error("lead_request_failed"), { status: response.status });
+        throw Object.assign(new Error("lead_request_failed"), {
+          status: response.status,
+        });
       }
-      setMeta("Your enquiry details were saved for follow-up.");
+      const retentionDays = Number(data.retentionDays);
+      setMeta(
+        Number.isSafeInteger(retentionDays) && retentionDays > 0
+          ? `Your enquiry details were saved for follow-up and are scheduled to expire after ${retentionDays} days.`
+          : "Your enquiry details were saved for follow-up.",
+      );
     } catch (error) {
       if (controller.signal.aborted) {
         setMeta("The follow-up request took too long. Nothing was confirmed.", true);
@@ -401,8 +495,8 @@
   }
 
   function showLeadConsent(action) {
-    const lead = normalizedLeadPayload(action && action.payload);
-    if (!lead) {
+    const proposal = normalizedLeadProposal(action && action.payload);
+    if (!proposal) {
       showContactAction(action);
       return;
     }
@@ -412,9 +506,17 @@
     copy.className = "consent-copy";
     copy.append("Share the email and message you provided for follow-up at ");
     const email = document.createElement("span");
-    email.className = "consent-email";
-    email.textContent = lead.email;
-    copy.append(email, "? Nothing is saved until you choose Share.");
+    email.className = "consent-strong";
+    email.textContent = proposal.lead.email;
+    copy.append(
+      email,
+      "? Nothing is saved until you choose Share. The record is retained for up to 90 days.",
+    );
+    const excerpt = document.createElement("p");
+    excerpt.className = "consent-message";
+    excerpt.textContent = proposal.lead.message.length > 180
+      ? `${proposal.lead.message.slice(0, 179)}…`
+      : proposal.lead.message;
     const actions = document.createElement("div");
     actions.className = "consent-actions";
     const confirm = document.createElement("button");
@@ -425,10 +527,14 @@
     cancel.className = "action";
     cancel.type = "button";
     cancel.textContent = "Not now";
-    confirm.addEventListener("click", () => void submitLead(lead, confirm, cancel));
-    cancel.addEventListener("click", () => setMeta("Follow-up details were not shared."));
+    confirm.addEventListener("click", () =>
+      void submitLead(proposal, confirm, cancel),
+    );
+    cancel.addEventListener("click", () =>
+      setMeta("Follow-up details were not shared."),
+    );
     actions.append(confirm, cancel);
-    box.append(copy, actions);
+    box.append(copy, excerpt, actions);
     meta.replaceChildren(box);
     meta.classList.remove("error");
     confirm.focus();
@@ -468,14 +574,18 @@
       });
       const data = await readJsonBounded(response).catch(() => ({}));
       if (!response.ok || data.ok === false) {
-        throw Object.assign(new Error("chat_request_failed"), { status: response.status });
+        throw Object.assign(new Error("chat_request_failed"), {
+          status: response.status,
+        });
       }
       const reply = typeof data.message === "string"
         ? data.message
         : typeof data.reply === "string"
           ? data.reply
           : "";
-      if (!reply.trim()) throw Object.assign(new Error("empty_reply"), { status: 502 });
+      if (!reply.trim()) {
+        throw Object.assign(new Error("empty_reply"), { status: 502 });
+      }
       addBubble("assistant", reply);
       setMeta("");
       if (data.action && data.action.type === "open_contact") {
@@ -544,7 +654,11 @@
     setMeta("You are offline.", true);
     updateControls();
   });
-  window.addEventListener("pagehide", () => activeController?.abort("pagehide"), { once: true });
+  window.addEventListener(
+    "pagehide",
+    () => activeController?.abort("pagehide"),
+    { once: true },
+  );
 
   addBubble("assistant", greeting, false);
   updateControls();
