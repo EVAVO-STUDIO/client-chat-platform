@@ -66,9 +66,10 @@ function stampRuntimeContract(response: Response) {
 export default {
   async fetch(request: Request, env: Env): Promise<Response> {
     const sanitizedRequest = withoutLegacyAdminHeader(request);
+    const sanitizedEnvironment = runtimeEnvironment(env);
     const response = await hardenedWorker.fetch(
       sanitizedRequest,
-      runtimeEnvironment(env),
+      sanitizedEnvironment,
     );
     return stampRuntimeContract(response);
   },
