@@ -2,7 +2,7 @@
 
 A reusable Cloudflare Worker and isolated browser widget for bounded, multi-tenant website chat.
 
-The active runtime is `worker/src/hardened.ts`. It wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, response and source-control boundaries. The historical router remains only for compatibility and is not the Wrangler entrypoint.
+The deployed entrypoint is `worker/src/runtime.ts`. It removes retired request aliases and applies the reviewed Workers AI fallback before delegating to `worker/src/hardened.ts`. The hardened router then wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network and response boundaries. Neither compatibility module is the Wrangler entrypoint.
 
 ## Repository structure
 
@@ -15,6 +15,7 @@ The active runtime is `worker/src/hardened.ts`. It wraps the historical implemen
 
 ## Enforced runtime posture
 
+- The final runtime removes the retired `x-admin-token` header before routing.
 - Administrator routes accept an exact `Authorization: Bearer ...` credential only.
 - `ADMIN_TOKEN` must be 32–256 bytes, contain no whitespace and remain server-side.
 - Browser chat requires at least one exact approved origin. Wildcard origins are rejected.
@@ -23,6 +24,7 @@ The active runtime is `worker/src/hardened.ts`. It wraps the historical implemen
 - Admin and chat JSON bodies are media-type checked, stream bounded and structure bounded.
 - Prototype-pollution keys are rejected.
 - Public model output cannot expose the provider’s raw response or raw provider error details.
+- A missing, malformed or known-retired model ID is replaced at runtime with `@cf/meta/llama-3.2-3b-instruct`.
 - Public chat never fetches knowledge URLs live.
 - Public URLs are fetched only by the authenticated `/admin/kb/refresh` route.
 - Every refresh uses public HTTPS only, manual redirect validation, a full-operation timeout, a streamed byte limit and binary-body rejection.
@@ -114,7 +116,9 @@ Old configurations require review before the hardened runtime will use them when
 - webhook URL, webhook authentication or webhook secret fields;
 - an invalid bot key.
 
-This is intentionally fail closed. Load the bot in the current admin console, correct the configuration, save it and refresh the cache.
+A missing or retired model alone does not block chat: the final runtime supplies the reviewed fallback. The stored record should still be resaved through the current admin console so its declared model matches actual operation.
+
+This is intentionally fail closed for unsafe configuration. Load the bot in the current admin console, correct the configuration, save it and refresh the cache.
 
 ## Widget embed
 
