@@ -53,9 +53,10 @@ function requireOrder(label, source, tokens) {
 }
 
 const sources = {
+  runtime: read(workerRoot, "src/runtime.ts"),
+  hardened: read(workerRoot, "src/hardened.ts"),
   security: read(workerRoot, "src/security.ts"),
   config: read(workerRoot, "src/configBoundary.ts"),
-  hardened: read(workerRoot, "src/hardened.ts"),
   legacy: read(workerRoot, "src/index.ts"),
   wrangler: read(workerRoot, "wrangler.jsonc"),
   package: read(workerRoot, "package.json"),
@@ -64,8 +65,12 @@ const sources = {
   rootPackage: read(repositoryRoot, "package.json"),
   gitignore: read(repositoryRoot, ".gitignore"),
   variables: read(repositoryRoot, ".dev.vars.example"),
+  workflow: read(repositoryRoot, ".github/workflows/worker-security.yml"),
   admin: read(repositoryRoot, "admin/index.html"),
   widget: read(repositoryRoot, "widget/embed.js"),
+  readme: read(repositoryRoot, "README.md"),
+  deploy: read(repositoryRoot, "DEPLOY.md"),
+  boundary: read(repositoryRoot, "docs/security-boundary.md"),
 };
 
 let workerPackage = {};
@@ -76,12 +81,49 @@ try { workerLock = JSON.parse(sources.lock); } catch { errors.push("worker/packa
 try { rootPackage = JSON.parse(sources.rootPackage); } catch { errors.push("package.json must remain valid JSON"); }
 
 requireTokens("Wrangler activation", sources.wrangler, [
-  '"main": "src/hardened.ts"',
+  '"main": "src/runtime.ts"',
   '"global_fetch_strictly_public"',
   '"nodejs_compat"',
   '"preview_urls": false',
+  '"observability"',
 ]);
-forbidTokens("Wrangler activation", sources.wrangler, ['"main": "src/index.ts"']);
+forbidTokens("Wrangler activation", sources.wrangler, [
+  '"main": "src/hardened.ts"',
+  '"main": "src/index.ts"',
+]);
+
+requireTokens("Final runtime boundary", sources.runtime, [
+  'ACTIVE_CHAT_RUNTIME_CONTRACT =\n  "client_chat_active_runtime_v1"',
+  'DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct"',
+  '"@cf/meta/llama-3-8b-instruct"',
+  "RETIRED_CHAT_MODELS",
+  "MODEL_PATTERN",
+  'LEGACY_ADMIN_HEADER = "x-admin-token"',
+  "effectiveChatModel",
+  "withoutLegacyAdminHeader",
+  "headers.delete(LEGACY_ADMIN_HEADER)",
+  "withModelBoundary",
+  "value.call(current, effectiveChatModel(model), ...args)",
+  "runtimeEnvironment",
+  'headers.set("X-EVAVO-Chat-Runtime", ACTIVE_CHAT_RUNTIME_CONTRACT)',
+  "hardenedWorker.fetch",
+  "legacyAdminHeaderRemovedBeforeRouting: true",
+  "missingModelUsesReviewedFallback: true",
+  "malformedModelUsesReviewedFallback: true",
+  "retiredModelUsesReviewedFallback: true",
+  "rawModelConfigurationExposedInRuntimeHeaders: false",
+]);
+requireOrder("Final runtime request boundary", sources.runtime, [
+  "withoutLegacyAdminHeader(request)",
+  "runtimeEnvironment(env)",
+  "hardenedWorker.fetch",
+  "stampRuntimeContract(response)",
+]);
+forbidTokens("Final runtime boundary", sources.runtime, [
+  'request.headers.get("x-admin-token")',
+  "request.json()",
+  "env.AI.run(",
+]);
 
 requireTokens("Request and network security", sources.security, [
   '"client_chat_security_v2"',
@@ -196,7 +238,10 @@ requireOrder("Public chat authorization", chatRoute, [
   "buildSafeChatConfig",
   "legacyWorker.fetch",
 ]);
-requireTokens("Legacy isolation", sources.legacy, ["export default", "async function handleChat"]);
+requireTokens("Legacy isolation", sources.legacy, [
+  "export default",
+  "async function handleChat",
+]);
 
 requireTokens("Admin console", sources.admin, [
   'type="password"',
@@ -250,7 +295,7 @@ forbidTokens("Embeddable widget", sources.widget, [
 
 requireTokens("Tracked-source secret safety", sources.sourceSecrets, [
   "client-chat-platform-tracked-source-secret-safety-v1",
-  "git\", [\"ls-files\", \"-z\"]",
+  'spawnSync("git", ["ls-files", "-z"]',
   "ALLOWED_ENV_FILES",
   "private-key-material",
   "credential-bearing-url",
@@ -272,12 +317,81 @@ requireTokens("Safe local variable template", sources.variables, [
   "Never commit .dev.vars",
 ]);
 
+requireTokens("Read-only CI workflow", sources.workflow, [
+  "branches: [main]",
+  '      - "worker/**"',
+  '      - "admin/**"',
+  '      - "widget/**"',
+  '      - "docs/**"',
+  '      - ".dev.vars.example"',
+  "permissions:\n  contents: read",
+  "cancel-in-progress: true",
+  "timeout-minutes: 12",
+  "persist-credentials: false",
+  'node-version: "24"',
+  "cache-dependency-path: worker/package-lock.json",
+  "npm ci --no-audit --no-fund",
+  "npm run check:source-secrets",
+  "npm run check:security",
+  "npm run typecheck",
+]);
+requireOrder("Read-only CI workflow", sources.workflow, [
+  "npm ci --no-audit --no-fund",
+  "npm run check:source-secrets",
+  "npm run check:security",
+  "npm run typecheck",
+]);
+forbidTokens("Read-only CI workflow", sources.workflow, [
+  "wrangler deploy",
+  "secrets.",
+  "ADMIN_TOKEN:",
+  "persist-credentials: true",
+]);
+
+requireTokens("README operating posture", sources.readme, [
+  "The deployed entrypoint is `worker/src/runtime.ts`",
+  "removes the retired `x-admin-token` header",
+  "@cf/meta/llama-3.2-3b-instruct",
+  "Public chat never fetches knowledge URLs live",
+  "Workers KV. KV is eventually consistent",
+  "npm run check:source-secrets",
+  "npm run check:security",
+  "npm run typecheck",
+  "cmd /c \"npm run deploy\"",
+]);
+requireTokens("Deployment runbook", sources.deploy, [
+  "worker/src/runtime.ts",
+  "Do not point Wrangler directly at either compatibility module",
+  "cmd /c \"npm ci --no-audit --no-fund\"",
+  "cmd /c \"npm run check\"",
+  "x-admin-token",
+  "X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1",
+  "@cf/meta/llama-3.2-3b-instruct",
+  "Public chat never fetches source pages during a visitor request",
+  "cmd /c \"npm run deploy\"",
+  "Direct Wrangler invocation bypasses the npm `predeploy` gate",
+  "Workers KV counters and indexes are eventually consistent",
+]);
+requireTokens("Security boundary document", sources.boundary, [
+  "worker/src/runtime.ts",
+  "removes the retired administrator header globally",
+  "X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1",
+  "Public chat performs no external network fetch",
+  "kb:v2:<64-character SHA-256 hex digest>",
+  "The resulting key is 70 bytes",
+  "External webhook execution is disabled",
+  "Workers KV is eventually consistent",
+]);
+
 const expectedWorkerScripts = {
   "check:source-secrets": "node scripts/check-source-secrets.mjs",
   "check:security": "node scripts/check-security-contract.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
   check: "npm run check:source-secrets && npm run check:security && npm run typecheck",
   predeploy: "npm run check",
+  deploy: "wrangler deploy -c wrangler.jsonc",
+  tail: "wrangler tail -c wrangler.jsonc",
+  whoami: "wrangler whoami",
 };
 for (const [name, command] of Object.entries(expectedWorkerScripts)) {
   if (workerPackage.scripts?.[name] !== command) {
@@ -286,6 +400,9 @@ for (const [name, command] of Object.entries(expectedWorkerScripts)) {
 }
 if (rootPackage.scripts?.check !== "npm --prefix worker run check") {
   errors.push("root package.json must expose check through the Worker package");
+}
+if (rootPackage.scripts?.deploy !== "npm --prefix worker run deploy") {
+  errors.push("root package.json must expose guarded Worker deployment");
 }
 if (
   workerLock.name !== workerPackage.name ||
@@ -303,10 +420,15 @@ if (Buffer.byteLength(cacheKey, "utf8") !== 70) {
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-security-contract-v3-source-secrets",
-  activeEntrypoint: "worker/src/hardened.ts",
+  contract: "client-chat-platform-security-contract-v4-final-runtime",
+  activeEntrypoint: "worker/src/runtime.ts",
+  hardenedRouterRequired: true,
   legacyEntrypointActive: false,
+  legacyAdminHeaderAllowed: false,
+  reviewedModelFallbackRequired: true,
   trackedSourceSecretSafetyRequired: true,
+  readOnlyCiRequired: true,
+  operatingDocumentationRequired: true,
   publicChatNetworkFetchAllowed: false,
   adminRefreshNetworkOnly: true,
   knowledgeCacheKeyBytes: Buffer.byteLength(cacheKey, "utf8"),
