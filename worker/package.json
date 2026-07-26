@@ -4,9 +4,10 @@
   "type": "module",
   "scripts": {
     "dev": "wrangler dev -c wrangler.jsonc",
+    "check:source-secrets": "node scripts/check-source-secrets.mjs",
     "check:security": "node scripts/check-security-contract.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "check": "npm run check:security && npm run typecheck",
+    "check": "npm run check:source-secrets && npm run check:security && npm run typecheck",
     "predeploy": "npm run check",
     "deploy": "wrangler deploy -c wrangler.jsonc",
     "tail": "wrangler tail -c wrangler.jsonc",
