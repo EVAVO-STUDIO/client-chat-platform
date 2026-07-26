@@ -206,6 +206,8 @@ const packageJson = fs.existsSync(packagePath)
   : {};
 const expectedScripts = {
   "check:source-secrets": "node scripts/check-source-secrets.mjs",
+  "check:config-secrets": "node scripts/check-admin-config-secret-boundary.mjs",
+  "precheck:security": "npm run check:config-secrets",
   "check:security": "node scripts/check-security-contract.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
   "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
@@ -218,6 +220,61 @@ for (const [name, command] of Object.entries(expectedScripts)) {
 }
 if (!String(packageJson.scripts?.check || "").startsWith("npm run check:source-secrets &&")) {
   errors.push("Worker check must run tracked-source secret safety first");
+}
+
+const focusedConfigPath = path.join(
+  workerRoot,
+  "scripts",
+  "check-admin-config-secret-boundary.mjs",
+);
+const focusedConfig = fs.existsSync(focusedConfigPath)
+  ? fs.readFileSync(focusedConfigPath, "utf8")
+  : "";
+for (const token of [
+  'contract: "client-chat-admin-config-secret-safety-v4-operator-ux"',
+  "rawBotKeysReturned: false",
+  "unknownStatusDisplayedAsNotConfigured: false",
+  "botKeyStatusLocallyRedacted: false",
+  "retiredWebhookCredentialsReturned: false",
+  "rawClientAddressesUsedAsKvKeys: false",
+]) {
+  if (!focusedConfig.includes(token)) {
+    errors.push(`config-secret safety contract must require: ${token}`);
+  }
+}
+
+const storagePath = path.join(workerRoot, "src", "runtimeStorageBoundary.ts");
+const storage = fs.existsSync(storagePath)
+  ? fs.readFileSync(storagePath, "utf8")
+  : "";
+for (const token of [
+  '"client_chat_runtime_storage_boundary_v3"',
+  "withProtectedBotConfigWrites",
+  "withHashedLegacyRateLimitKeys",
+  "redactAdminConfigResponse",
+]) {
+  if (!storage.includes(token)) {
+    errors.push(`runtime storage boundary must require: ${token}`);
+  }
+}
+
+const configDocPath = path.join(
+  repositoryRoot,
+  "docs",
+  "admin-config-secret-boundary.md",
+);
+const configDoc = fs.existsSync(configDocPath)
+  ? fs.readFileSync(configDocPath, "utf8")
+  : "";
+for (const token of [
+  "client_chat_runtime_storage_boundary_v3",
+  "botKeyStatus",
+  "rl:v2:<sha256>",
+  "pseudonymous rather than anonymous",
+]) {
+  if (!configDoc.includes(token)) {
+    errors.push(`config-secret documentation must include: ${token}`);
+  }
 }
 
 const contractPath = path.join(workerRoot, "scripts", "check-security-contract.mjs");
@@ -239,7 +296,7 @@ for (const token of [
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-tracked-source-secret-safety-v2-bundle",
+  contract: "client-chat-platform-tracked-source-secret-safety-v3-config-secrets",
   trackedFilesInspected: files.length,
   maximumScannedFileBytes: MAX_SCANNED_FILE_BYTES,
   trackedEnvironmentFilesAllowed: [...ALLOWED_ENV_FILES],
@@ -248,6 +305,9 @@ console.log(JSON.stringify({
   liveProviderTokensAllowed: false,
   credentialBearingUrlsAllowed: false,
   rawSecretValuesPrinted: false,
+  configSecretCheckRequired: true,
+  configSecretPrehookRequired: true,
+  runtimeStorageBoundaryRequired: true,
   completeCheckOrderRequired: true,
   dryRunBundleRequired: true,
   repositoryVisibilityEnforcedBySource: false,
