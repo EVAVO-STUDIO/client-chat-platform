@@ -5,6 +5,8 @@
   "scripts": {
     "dev": "wrangler dev -c wrangler.jsonc",
     "check:source-secrets": "node scripts/check-source-secrets.mjs",
+    "check:config-secrets": "node scripts/check-admin-config-secret-boundary.mjs",
+    "precheck:security": "npm run check:config-secrets",
     "check:security": "node scripts/check-security-contract.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
