@@ -14,7 +14,7 @@ import {
 } from "./security";
 
 export const EXPLICIT_LEAD_CAPTURE_CONTRACT =
-  "client_chat_explicit_lead_capture_v1" as const;
+  "client_chat_explicit_lead_capture_v2" as const;
 
 export type LeadCaptureEnv = Pick<LegacyEnv, "BOT_CONFIG" | "KB_CACHE">;
 
@@ -22,8 +22,13 @@ const LEAD_REQUEST_MAX_BYTES = 32 * 1024;
 const LEAD_RATE_LIMIT = 3;
 const LEAD_RATE_WINDOW_SECONDS = 10 * 60;
 const LEAD_INDEX_MAXIMUM = 500;
-const LEAD_CONSENT_VERSION = "visitor_follow_up_consent_v1";
-const TOP_LEVEL_FIELDS = ["botId", "consent", "lead"];
+const LEAD_RETENTION_DAYS = 90;
+const LEAD_RETENTION_SECONDS = LEAD_RETENTION_DAYS * 24 * 60 * 60;
+const LEAD_CONSENT_VERSION = "visitor_follow_up_consent_v2";
+const MAX_EVIDENCE_MESSAGES = 20;
+const MAX_EVIDENCE_MESSAGE_CHARS = 2_000;
+const MAX_EVIDENCE_TOTAL_CHARS = 20_000;
+const TOP_LEVEL_FIELDS = ["botId", "consent", "evidence", "lead"];
 const LEAD_FIELDS = new Set([
   "company",
   "email",
@@ -106,10 +111,60 @@ function safeSourcePath(value: unknown) {
   return path;
 }
 
+function normalizeEvidenceText(value: string) {
+  return value.trim().replace(/\s+/g, " ").toLowerCase();
+}
+
+function normalizePhoneEvidence(value: string) {
+  return value.replace(/\D/g, "");
+}
+
+function sanitizeEvidence(value: unknown) {
+  if (
+    !Array.isArray(value) ||
+    value.length === 0 ||
+    value.length > MAX_EVIDENCE_MESSAGES
+  ) {
+    return null;
+  }
+  const evidence: string[] = [];
+  let totalCharacters = 0;
+  for (const candidate of value) {
+    const text = boundedText(candidate, 1, MAX_EVIDENCE_MESSAGE_CHARS, {
+      multiline: true,
+      required: true,
+    });
+    if (typeof text !== "string") return null;
+    totalCharacters += text.length;
+    if (totalCharacters > MAX_EVIDENCE_TOTAL_CHARS) return null;
+    evidence.push(text);
+  }
+  return evidence;
+}
+
+function textAppearsInEvidence(value: string, evidence: readonly string[]) {
+  const normalized = normalizeEvidenceText(value);
+  return (
+    normalized.length > 0 &&
+    evidence.some((message) => normalizeEvidenceText(message).includes(normalized))
+  );
+}
+
+function phoneAppearsInEvidence(value: string, evidence: readonly string[]) {
+  const digits = normalizePhoneEvidence(value);
+  return (
+    digits.length >= 6 &&
+    evidence.some((message) =>
+      normalizePhoneEvidence(message).includes(digits),
+    )
+  );
+}
+
 function sanitizeLeadRequest(value: JsonObject) {
   if (!exactObjectFields(value, TOP_LEVEL_FIELDS)) return null;
   const botId = normalizeBotId(value.botId);
-  if (!botId || value.consent !== true) return null;
+  const evidence = sanitizeEvidence(value.evidence);
+  if (!botId || value.consent !== true || !evidence) return null;
   if (!value.lead || typeof value.lead !== "object" || Array.isArray(value.lead)) {
     return null;
   }
@@ -128,17 +183,21 @@ function sanitizeLeadRequest(value: JsonObject) {
   const phone = boundedText(lead.phone, 7, 40);
   const sourcePath = safeSourcePath(lead.sourcePath);
   if (
-    email === null ||
-    message === null ||
+    typeof email !== "string" ||
+    typeof message !== "string" ||
     name === null ||
     company === null ||
     phone === null ||
     sourcePath === null ||
-    !EMAIL_PATTERN.test(email)
+    !EMAIL_PATTERN.test(email) ||
+    !textAppearsInEvidence(email, evidence) ||
+    !textAppearsInEvidence(message, evidence) ||
+    (name && !textAppearsInEvidence(name, evidence)) ||
+    (company && !textAppearsInEvidence(company, evidence)) ||
+    (phone && !phoneAppearsInEvidence(phone, evidence))
   ) {
     return null;
   }
-  if (phone && phone.replace(/\D/g, "").length < 6) return null;
 
   return {
     botId,
@@ -178,11 +237,10 @@ async function consumeLeadRateLimit(
     `client-chat-lead-rate\u0000${botId}\u0000${origin}\u0000${clientAddress(request)}`,
   );
   const key = `lead-rate:v1:${bucket}:${fingerprint}`;
-  let current = 0;
   try {
     const raw = await env.KB_CACHE.get(key);
     const parsed = Number(raw || "0");
-    current = Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
+    const current = Number.isSafeInteger(parsed) && parsed >= 0 ? parsed : 0;
     if (current >= LEAD_RATE_LIMIT) return false;
     await env.KB_CACHE.put(key, String(current + 1), {
       expirationTtl: LEAD_RATE_WINDOW_SECONDS + 60,
@@ -199,18 +257,28 @@ function randomHex(bytes: number) {
   return [...value].map((byte) => byte.toString(16).padStart(2, "0")).join("");
 }
 
-function safeLeadIndex(raw: string | null, botId: string) {
+function safeLeadIndex(raw: string | null, botId: string, now: number) {
+  const oldestRetainedTimestamp = now - LEAD_RETENTION_SECONDS * 1_000;
   try {
     const parsed = JSON.parse(raw || "[]") as unknown;
     if (!Array.isArray(parsed)) return [];
     return Array.from(
       new Set(
-        parsed.filter(
-          (item): item is string =>
-            typeof item === "string" &&
-            item.startsWith(`lead:${botId}:`) &&
-            LEAD_KEY_PATTERN.test(item),
-        ),
+        parsed.filter((item): item is string => {
+          if (
+            typeof item !== "string" ||
+            !item.startsWith(`lead:${botId}:`) ||
+            !LEAD_KEY_PATTERN.test(item)
+          ) {
+            return false;
+          }
+          const timestamp = Number(item.split(":")[2]);
+          return (
+            Number.isSafeInteger(timestamp) &&
+            timestamp >= oldestRetainedTimestamp &&
+            timestamp <= now + 60_000
+          );
+        }),
       ),
     ).slice(-LEAD_INDEX_MAXIMUM);
   } catch {
@@ -223,13 +291,18 @@ async function storeExplicitLead(
   input: NonNullable<ReturnType<typeof sanitizeLeadRequest>>,
   origin: string,
 ) {
-  const createdAt = new Date().toISOString();
-  const key = `lead:${input.botId}:${Date.now()}:${randomHex(8)}`;
+  const now = Date.now();
+  const createdAt = new Date(now).toISOString();
+  const expiresAt = new Date(
+    now + LEAD_RETENTION_SECONDS * 1_000,
+  ).toISOString();
+  const key = `lead:${input.botId}:${now}:${randomHex(8)}`;
   const record = Object.freeze({
     contract: EXPLICIT_LEAD_CAPTURE_CONTRACT,
     leadId: key,
     botId: input.botId,
     createdAt,
+    expiresAt,
     consent: Object.freeze({
       granted: true,
       version: LEAD_CONSENT_VERSION,
@@ -249,18 +322,29 @@ async function storeExplicitLead(
   const indexKey = `lead:index:${input.botId}`;
 
   try {
-    const index = safeLeadIndex(await env.BOT_CONFIG.get(indexKey), input.botId);
-    await env.BOT_CONFIG.put(key, JSON.stringify(record));
+    const index = safeLeadIndex(
+      await env.BOT_CONFIG.get(indexKey),
+      input.botId,
+      now,
+    );
+    await env.BOT_CONFIG.put(key, JSON.stringify(record), {
+      expirationTtl: LEAD_RETENTION_SECONDS,
+    });
     try {
       await env.BOT_CONFIG.put(
         indexKey,
-        JSON.stringify([...index.filter((item) => item !== key), key].slice(-LEAD_INDEX_MAXIMUM)),
+        JSON.stringify(
+          [...index.filter((item) => item !== key), key].slice(
+            -LEAD_INDEX_MAXIMUM,
+          ),
+        ),
+        { expirationTtl: LEAD_RETENTION_SECONDS },
       );
     } catch {
       await env.BOT_CONFIG.delete(key).catch(() => undefined);
       return null;
     }
-    return { leadId: key, createdAt } as const;
+    return { leadId: key, createdAt, expiresAt } as const;
   } catch {
     return null;
   }
@@ -345,7 +429,9 @@ export async function handleExplicitLeadCapture(
       ok: true,
       leadId: stored.leadId,
       createdAt: stored.createdAt,
+      expiresAt: stored.expiresAt,
       consentVersion: LEAD_CONSENT_VERSION,
+      retentionDays: LEAD_RETENTION_DAYS,
     },
     origin,
   );
@@ -361,11 +447,18 @@ export const explicitLeadCapturePosture = Object.freeze({
   boundedRequestBytes: LEAD_REQUEST_MAX_BYTES,
   requiredContactField: "email",
   requiredMessage: true,
+  visitorMessageEvidenceRequired: true,
+  maximumEvidenceMessages: MAX_EVIDENCE_MESSAGES,
+  maximumEvidenceCharacters: MAX_EVIDENCE_TOTAL_CHARS,
+  evidenceStoredWithLead: false,
   modelActionWritesLeadDirectly: false,
   rawIpStored: false,
   userAgentStored: false,
   externalNetworkCalls: false,
   bestEffortKvRateLimit: true,
+  retentionDays: LEAD_RETENTION_DAYS,
+  recordExpiryRequired: true,
+  indexExpiryRequired: true,
   transactionalIndexGuarantee: false,
   historicalLeadIndexCompatibilityRequired: true,
   rawLeadEchoedInResponse: false,
