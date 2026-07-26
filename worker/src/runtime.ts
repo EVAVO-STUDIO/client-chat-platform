@@ -4,7 +4,9 @@ import {
   leadCapturePreflight,
 } from "./leadCapture";
 import {
+  createBotConfigMutationReceipt,
   redactAdminConfigResponse,
+  type BotConfigMutationReceipt,
   withHashedLegacyRateLimitKeys,
   withProtectedBotConfigWrites,
 } from "./runtimeStorageBoundary";
@@ -103,7 +105,11 @@ function withoutImplicitLeadAccess(binding: KVNamespace) {
   }) as KVNamespace;
 }
 
-function runtimeEnvironment(env: Env, pathname: string): Env {
+function runtimeEnvironment(
+  env: Env,
+  pathname: string,
+  receipt: BotConfigMutationReceipt,
+): Env {
   const chatRequest = pathname === CHAT_ROUTE;
   const configWrite = pathname === ADMIN_UPSERT_ROUTE;
   return {
@@ -112,7 +118,7 @@ function runtimeEnvironment(env: Env, pathname: string): Env {
     BOT_CONFIG: chatRequest
       ? withoutImplicitLeadAccess(env.BOT_CONFIG)
       : configWrite
-        ? withProtectedBotConfigWrites(env.BOT_CONFIG)
+        ? withProtectedBotConfigWrites(env.BOT_CONFIG, receipt)
         : env.BOT_CONFIG,
     KB_CACHE: chatRequest
       ? withHashedLegacyRateLimitKeys(env.KB_CACHE)
@@ -168,7 +174,12 @@ export default {
       );
     }
 
-    const sanitizedEnvironment = runtimeEnvironment(env, pathname);
+    const mutationReceipt = createBotConfigMutationReceipt();
+    const sanitizedEnvironment = runtimeEnvironment(
+      env,
+      pathname,
+      mutationReceipt,
+    );
     const routedResponse = await hardenedWorker.fetch(
       sanitizedRequest,
       sanitizedEnvironment,
@@ -176,7 +187,7 @@ export default {
     const response = await redactAdminConfigResponse(
       routedResponse,
       pathname,
-      env.BOT_CONFIG,
+      mutationReceipt,
     );
     return stampRuntimeContract(response);
   },
@@ -201,7 +212,8 @@ export const activeChatRuntimePosture = Object.freeze({
   rawModelConfigurationExposedInRuntimeHeaders: false,
   rawBotKeyReturnedByAdminConfigRoutes: false,
   blankBotKeyUpdateClearsExistingKey: false,
-  upsertBotKeyStatusUsesStoredRecordWhenAvailable: true,
+  upsertBotKeyStatusUsesCommittedMutationReceipt: true,
+  postWriteKvReadRequiredForUpsertStatus: false,
   retiredWebhookCredentialsReturned: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
 });
