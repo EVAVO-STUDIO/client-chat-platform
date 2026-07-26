@@ -47,6 +47,7 @@ const admin = read(repositoryRoot, "admin/index.html");
 const packageSource = read(workerRoot, "package.json");
 const workflow = read(repositoryRoot, ".github/workflows/worker-security.yml");
 const documentation = read(repositoryRoot, "docs/admin-config-secret-boundary.md");
+const readme = read(repositoryRoot, "README.md");
 
 let packageJson = {};
 try {
@@ -117,8 +118,19 @@ requireOrder("Active runtime storage sequence", runtime, [
 requireTokens("Administrator console defence in depth", admin, [
   "Secret-like fields are redacted locally",
   "function redact(value",
+  'key === "botKeyConfigured" || key === "botKeyStatus"',
   "/token|secret|password|botkey|authorization/i",
   'type="password"',
+  'id="botKeyState" class="help" role="status" aria-live="polite"',
+  'id="clearBotKey" type="checkbox"',
+  'BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__"',
+  "function botKeyStateMessage(config)",
+  'config.botKeyStatus === "configured"',
+  'config.botKeyStatus === "not_configured"',
+  "The Worker could not confirm the current bot-key state.",
+  "function syncBotKeyControls()",
+  'byId("botKey").disabled = clearing',
+  'byId("clearBotKey").addEventListener("change", syncBotKeyControls)',
   'Authorization: `Bearer ${token}`',
   'credentials: "omit"',
   'referrerPolicy: "no-referrer"',
@@ -127,6 +139,7 @@ forbidTokens("Administrator console", admin, [
   "localStorage",
   "sessionStorage",
   "x-admin-token",
+  "config.botKey ||",
 ]);
 
 const expectedCommand = "node scripts/check-admin-config-secret-boundary.mjs";
@@ -158,21 +171,35 @@ requireTokens("Administrator config secret documentation", documentation, [
   "__EVAVO_CLEAR_BOT_KEY__",
   "botKeyConfigured",
   "botKeyStatus",
+  "unknown",
+  "cfg:index",
+  "not hashed again",
   "rl:v2:<sha256>",
   "pseudonymous rather than anonymous",
   "npm run check:config-secrets",
   "does not",
 ]);
 
+requireTokens("README config-secret posture", readme, [
+  "docs/admin-config-secret-boundary.md",
+  "Administrator config responses never return a bot key.",
+  "A blank administrator bot-key field preserves an existing key.",
+  "rl:v2:<sha256>",
+  "npm run check:config-secrets",
+  "pseudonymous rather than anonymous",
+]);
+
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-admin-config-secret-safety-v3-truthful-projection",
+  contract: "client-chat-admin-config-secret-safety-v4-operator-ux",
   rawBotKeysReturned: false,
   blankUpdatesClearExistingBotKeys: false,
   explicitClearSentinelRequired: true,
   upsertStatusUsesStoredRecordWhenAvailable: true,
   unknownStatusAllowedWhenStoredReadUnavailable: true,
+  unknownStatusDisplayedAsNotConfigured: false,
+  botKeyStatusLocallyRedacted: false,
   configIndexCompatibilityPreserved: true,
   malformedConfigKeysAccepted: false,
   retiredWebhookCredentialsReturned: false,
