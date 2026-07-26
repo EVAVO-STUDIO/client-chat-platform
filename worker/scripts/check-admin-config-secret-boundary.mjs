@@ -43,6 +43,7 @@ function requireOrder(label, source, tokens) {
 
 const storage = read(workerRoot, "src/runtimeStorageBoundary.ts");
 const runtime = read(workerRoot, "src/runtime.ts");
+const behavior = read(workerRoot, "scripts/check-runtime-storage-behaviour.mjs");
 const admin = read(repositoryRoot, "admin/index.html");
 const packageSource = read(workerRoot, "package.json");
 const workflow = read(repositoryRoot, ".github/workflows/worker-security.yml");
@@ -130,6 +131,30 @@ requireOrder("Active runtime storage sequence", runtime, [
   "stampRuntimeContract(response)",
 ]);
 
+requireTokens("Runtime storage behavioral verification", behavior, [
+  'contract: "client-chat-runtime-storage-behaviour-v1"',
+  "ts.transpileModule",
+  "withProtectedBotConfigWrites",
+  "createBotConfigMutationReceipt",
+  "BOT_KEY_CLEAR_SENTINEL",
+  "withHashedLegacyRateLimitKeys",
+  "blankBotKeyPreserved: true",
+  "explicitBotKeyClearVerified: true",
+  "retiredCredentialsScrubbed: true",
+  "configIndexCompatibilityVerified: true",
+  "malformedConfigKeysRejected: true",
+  "committedMutationReceiptVerified: true",
+  "rawBotKeyProjected: false",
+  "malformedAdminJsonAccepted: false",
+  "rawClientAddressUsedAsKvKey: false",
+  "alreadyHashedRateLimitKeyRehashed: false",
+]);
+forbidTokens("Runtime storage behavioral verification", behavior, [
+  "process.env.ADMIN_TOKEN",
+  "wrangler deploy",
+  "await fetch(",
+]);
+
 requireTokens("Administrator console defence in depth", admin, [
   "Secret-like fields are redacted locally",
   "function redact(value",
@@ -157,15 +182,17 @@ forbidTokens("Administrator console", admin, [
   "config.botKey ||",
 ]);
 
-const expectedCommand = "node scripts/check-admin-config-secret-boundary.mjs";
-if (packageJson.scripts?.["check:config-secrets"] !== expectedCommand) {
-  errors.push(`worker/package.json must expose check:config-secrets as ${expectedCommand}`);
-}
-if (packageJson.scripts?.["precheck:security"] !== "npm run check:config-secrets") {
-  errors.push("worker/package.json precheck:security must run check:config-secrets");
-}
-if (packageJson.scripts?.["check:security"] !== "node scripts/check-security-contract.mjs") {
-  errors.push("worker/package.json must retain the main security checker command");
+const expectedScripts = {
+  "check:config-secrets:source": "node scripts/check-admin-config-secret-boundary.mjs",
+  "check:config-secrets:behavior": "node scripts/check-runtime-storage-behaviour.mjs",
+  "check:config-secrets": "npm run check:config-secrets:source && npm run check:config-secrets:behavior",
+  "precheck:security": "npm run check:config-secrets",
+  "check:security": "node scripts/check-security-contract.mjs",
+};
+for (const [name, command] of Object.entries(expectedScripts)) {
+  if (packageJson.scripts?.[name] !== command) {
+    errors.push(`worker/package.json must expose ${name} as ${command}`);
+  }
 }
 
 requireTokens("Read-only security workflow", workflow, [
@@ -211,7 +238,7 @@ requireTokens("README config-secret posture", readme, [
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-admin-config-secret-safety-v5-mutation-receipt",
+  contract: "client-chat-admin-config-secret-safety-v6-behavioral",
   rawBotKeysReturned: false,
   blankUpdatesClearExistingBotKeys: false,
   explicitClearSentinelRequired: true,
@@ -228,6 +255,7 @@ console.log(JSON.stringify({
   alreadyHashedRateLimitKeysRehashed: false,
   rateLimitIdentifiersPseudonymous: true,
   responseProjectionByteBounded: true,
+  behavioralVerificationRequired: true,
   focusedCheckRunsBeforeMainSecurityCheck: true,
   readOnlyCiRequired: true,
   deploymentAllowedFromCheck: false,
