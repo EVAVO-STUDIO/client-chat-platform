@@ -1,0 +1,70 @@
+name: Client chat platform security
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "admin/**"
+      - "widget/**"
+      - "scripts/**"
+      - "README.md"
+      - "DEPLOY.md"
+      - ".gitignore"
+      - ".dev.vars.example"
+      - "package.json"
+      - ".github/workflows/worker-security.yml"
+  pull_request:
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "admin/**"
+      - "widget/**"
+      - "scripts/**"
+      - "README.md"
+      - "DEPLOY.md"
+      - ".gitignore"
+      - ".dev.vars.example"
+      - "package.json"
+      - ".github/workflows/worker-security.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-chat-security-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  security:
+    name: Source, boundary and type contract
+    runs-on: ubuntu-latest
+    timeout-minutes: 12
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - name: Checkout
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+
+      - name: Install locked Worker dependencies
+        run: npm ci --no-audit --no-fund
+
+      - name: Verify tracked-source secret safety
+        run: npm run check:source-secrets
+
+      - name: Verify hardened architecture contract
+        run: npm run check:security
+
+      - name: Typecheck active Worker entrypoint
+        run: npm run typecheck
