@@ -5,7 +5,9 @@
   "scripts": {
     "dev": "wrangler dev -c wrangler.jsonc",
     "check:source-secrets": "node scripts/check-source-secrets.mjs",
-    "check:config-secrets": "node scripts/check-admin-config-secret-boundary.mjs",
+    "check:config-secrets:source": "node scripts/check-admin-config-secret-boundary.mjs",
+    "check:config-secrets:behavior": "node scripts/check-runtime-storage-behaviour.mjs",
+    "check:config-secrets": "npm run check:config-secrets:source && npm run check:config-secrets:behavior",
     "precheck:security": "npm run check:config-secrets",
     "check:security": "node scripts/check-security-contract.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
