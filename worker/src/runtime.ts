@@ -3,6 +3,11 @@ import {
   handleExplicitLeadCapture,
   leadCapturePreflight,
 } from "./leadCapture";
+import {
+  redactAdminConfigResponse,
+  withHashedLegacyRateLimitKeys,
+  withProtectedBotConfigWrites,
+} from "./runtimeStorageBoundary";
 
 export interface Env extends HardenedEnv {}
 
@@ -18,6 +23,7 @@ const MODEL_TIMEOUT_MS = 20_000;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
 const LEAD_ROUTE = "/api/leads";
+const ADMIN_UPSERT_ROUTE = "/admin/upsert";
 
 function effectiveChatModel(value: unknown) {
   const candidate = typeof value === "string" ? value.trim() : "";
@@ -97,13 +103,20 @@ function withoutImplicitLeadAccess(binding: KVNamespace) {
   }) as KVNamespace;
 }
 
-function runtimeEnvironment(env: Env, blockImplicitLeadAccess: boolean): Env {
+function runtimeEnvironment(env: Env, pathname: string): Env {
+  const chatRequest = pathname === CHAT_ROUTE;
+  const configWrite = pathname === ADMIN_UPSERT_ROUTE;
   return {
     ...env,
     AI: withModelBoundary(env.AI),
-    BOT_CONFIG: blockImplicitLeadAccess
+    BOT_CONFIG: chatRequest
       ? withoutImplicitLeadAccess(env.BOT_CONFIG)
-      : env.BOT_CONFIG,
+      : configWrite
+        ? withProtectedBotConfigWrites(env.BOT_CONFIG)
+        : env.BOT_CONFIG,
+    KB_CACHE: chatRequest
+      ? withHashedLegacyRateLimitKeys(env.KB_CACHE)
+      : env.KB_CACHE,
   };
 }
 
@@ -155,13 +168,14 @@ export default {
       );
     }
 
-    const sanitizedEnvironment = runtimeEnvironment(
-      env,
-      pathname === CHAT_ROUTE,
-    );
-    const response = await hardenedWorker.fetch(
+    const sanitizedEnvironment = runtimeEnvironment(env, pathname);
+    const routedResponse = await hardenedWorker.fetch(
       sanitizedRequest,
       sanitizedEnvironment,
+    );
+    const response = await redactAdminConfigResponse(
+      routedResponse,
+      pathname,
     );
     return stampRuntimeContract(response);
   },
@@ -184,4 +198,8 @@ export const activeChatRuntimePosture = Object.freeze({
   explicitVisitorLeadConsentRequired: true,
   explicitLeadRoute: LEAD_ROUTE,
   rawModelConfigurationExposedInRuntimeHeaders: false,
+  rawBotKeyReturnedByAdminConfigRoutes: false,
+  blankBotKeyUpdateClearsExistingKey: false,
+  retiredWebhookCredentialsReturned: false,
+  rawClientAddressStoredInLegacyRateLimitKey: false,
 });
