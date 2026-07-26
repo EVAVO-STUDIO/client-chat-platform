@@ -1,7 +1,7 @@
 import { sha256Hex } from "./security";
 
 export const RUNTIME_STORAGE_BOUNDARY_CONTRACT =
-  "client_chat_runtime_storage_boundary_v3" as const;
+  "client_chat_runtime_storage_boundary_v4" as const;
 
 export const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
 
@@ -28,6 +28,20 @@ const RETIRED_SECRET_FIELDS = [
 ] as const;
 
 type JsonObject = Record<string, unknown>;
+
+export type BotConfigMutationReceipt = {
+  botId: string | null;
+  botKeyConfigured: boolean | null;
+  committed: boolean;
+};
+
+export function createBotConfigMutationReceipt(): BotConfigMutationReceipt {
+  return {
+    botId: null,
+    botKeyConfigured: null,
+    committed: false,
+  };
+}
 
 function parseJsonObject(value: unknown): JsonObject | null {
   if (typeof value !== "string") return null;
@@ -85,6 +99,10 @@ async function protectedConfigValue(
 ) {
   const next = parseJsonObject(value);
   if (!next) throw new Error("invalid_bot_configuration_write");
+  const botId = key.slice(BOT_CONFIG_PREFIX.length);
+  if (!BOT_ID_PATTERN.test(botId)) {
+    throw new Error("invalid_bot_configuration_write");
+  }
 
   const requestedBotKey =
     typeof next.botKey === "string" ? next.botKey : "";
@@ -99,10 +117,17 @@ async function protectedConfigValue(
 
   const scrubbed = scrubRetiredConfigSecrets(next);
   scrubbed.botKey = next.botKey;
-  return JSON.stringify(scrubbed);
+  return {
+    botId,
+    botKeyConfigured: botKeyAllowed(scrubbed.botKey),
+    serialized: JSON.stringify(scrubbed),
+  } as const;
 }
 
-export function withProtectedBotConfigWrites(binding: KVNamespace) {
+export function withProtectedBotConfigWrites(
+  binding: KVNamespace,
+  receipt?: BotConfigMutationReceipt,
+) {
   const target = binding;
   return new Proxy(target, {
     get(current, property, receiver) {
@@ -127,7 +152,12 @@ export function withProtectedBotConfigWrites(binding: KVNamespace) {
             key,
             payload,
           );
-          return current.put(key, protectedValue, options);
+          await current.put(key, protectedValue.serialized, options);
+          if (receipt) {
+            receipt.botId = protectedValue.botId;
+            receipt.botKeyConfigured = protectedValue.botKeyConfigured;
+            receipt.committed = true;
+          }
         };
       }
       return typeof value === "function" ? value.bind(current) : value;
@@ -177,26 +207,41 @@ export function withHashedLegacyRateLimitKeys(binding: KVNamespace) {
   }) as KVNamespace;
 }
 
+function responseBotId(responseConfig: JsonObject) {
+  const candidate = typeof responseConfig.botId === "string"
+    ? responseConfig.botId.trim()
+    : "";
+  return BOT_ID_PATTERN.test(candidate) ? candidate : null;
+}
+
 function botKeyProjectionStatus(
   responseConfig: JsonObject,
-  storedConfig: JsonObject | null,
   pathname: string,
+  receipt?: BotConfigMutationReceipt,
 ): boolean | null {
+  const botId = responseBotId(responseConfig);
+  if (
+    pathname === "/admin/upsert" &&
+    receipt?.committed === true &&
+    botId !== null &&
+    receipt.botId === botId
+  ) {
+    return receipt.botKeyConfigured;
+  }
   if (responseConfig.botKey === BOT_KEY_CLEAR_SENTINEL) return false;
   if (botKeyAllowed(responseConfig.botKey)) return true;
-  if (storedConfig) return botKeyAllowed(storedConfig.botKey);
   return pathname === "/admin/get" ? false : null;
 }
 
 function projectAdminConfig(
   value: unknown,
-  storedConfig: JsonObject | null,
   pathname: string,
+  receipt?: BotConfigMutationReceipt,
 ): JsonObject | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as JsonObject;
   const projected = scrubRetiredConfigSecrets(source);
-  const configured = botKeyProjectionStatus(source, storedConfig, pathname);
+  const configured = botKeyProjectionStatus(source, pathname, receipt);
   projected.botKeyConfigured = configured;
   projected.botKeyStatus = configured === true
     ? "configured"
@@ -269,28 +314,10 @@ function replacementResponse(
   return new Response(JSON.stringify(payload), { status, headers });
 }
 
-async function storedConfigForProjection(
-  binding: KVNamespace | undefined,
-  value: unknown,
-) {
-  if (!binding || !value || typeof value !== "object" || Array.isArray(value)) {
-    return null;
-  }
-  const botId = typeof (value as JsonObject).botId === "string"
-    ? String((value as JsonObject).botId).trim()
-    : "";
-  if (!BOT_ID_PATTERN.test(botId)) return null;
-  try {
-    return parseJsonObject(await binding.get(`${BOT_CONFIG_PREFIX}${botId}`));
-  } catch {
-    return null;
-  }
-}
-
 export async function redactAdminConfigResponse(
   response: Response,
   pathname: string,
-  binding?: KVNamespace,
+  receipt?: BotConfigMutationReceipt,
 ) {
   if (!CONFIG_RESPONSE_PATHS.has(pathname)) return response;
   const contentType = String(
@@ -333,13 +360,10 @@ export async function redactAdminConfigResponse(
   }
 
   if (payload.cfg !== undefined) {
-    const storedConfig = pathname === "/admin/upsert"
-      ? await storedConfigForProjection(binding, payload.cfg)
-      : null;
     const projected = projectAdminConfig(
       payload.cfg,
-      storedConfig,
       pathname,
+      receipt,
     );
     if (!projected) {
       return replacementResponse(response, 502, {
@@ -360,8 +384,9 @@ export const runtimeStorageBoundaryPosture = Object.freeze({
   rawBotKeyReturnedByAdminConfigRoutes: false,
   blankBotKeyUpdateClearsExistingKey: false,
   explicitBotKeyClearSentinelRequired: true,
-  upsertBotKeyStatusUsesStoredRecordWhenAvailable: true,
-  unknownBotKeyStatusAllowedWhenStoredReadUnavailable: true,
+  upsertBotKeyStatusUsesCommittedMutationReceipt: true,
+  postWriteKvReadRequiredForUpsertStatus: false,
+  unknownBotKeyStatusAllowedWithoutReceipt: true,
   retiredWebhookCredentialsReturned: false,
   retiredWebhookCredentialsPersistedOnUpsert: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
