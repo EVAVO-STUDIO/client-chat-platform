@@ -8,7 +8,7 @@ The active boundary is implemented by:
 
 ```text
 worker/src/runtimeStorageBoundary.ts
-client_chat_runtime_storage_boundary_v3
+client_chat_runtime_storage_boundary_v4
 ```
 
 It runs outside the legacy compatibility router and applies before configuration writes reach KV and before configuration responses reach the administrator client.
@@ -32,6 +32,22 @@ The reserved value is interpreted by the runtime storage boundary and is never p
 
 The legacy `cfg:index` record is not treated as an individual bot configuration. It passes through the storage wrapper unchanged so list compatibility remains intact. Other `cfg:` keys must match the reviewed bot-ID key pattern; malformed configuration keys and non-text configuration values fail closed.
 
+## Committed mutation receipt
+
+A protected configuration write produces an in-request mutation receipt only after the KV `put` resolves successfully. The receipt contains:
+
+```text
+botId
+botKeyConfigured
+committed
+```
+
+The receipt contains no key value, request body or administrator credential. It is held only for the current Worker request and is not written to KV.
+
+`/admin/upsert` uses this committed receipt when projecting the response. It does not perform an immediate post-write KV read to infer bot-key state. This matters because Workers KV is eventually consistent and a read immediately after a successful write may still return an older value.
+
+If no committed receipt is available, the response uses `unknown` rather than claiming that a key is absent. `/admin/get` derives the status from the configuration record it actually read.
+
 ## Response projection
 
 Successful `/admin/get` and `/admin/upsert` responses are projected before they leave the Worker:
@@ -39,15 +55,14 @@ Successful `/admin/get` and `/admin/upsert` responses are projected before they 
 - `botKey` is removed;
 - `botKeyConfigured` reports only whether a valid key exists when that state can be established;
 - `botKeyStatus` is `configured`, `not_configured` or `unknown`;
-- `/admin/upsert` checks the stored record after the protected write so a preserved key is reported truthfully;
-- if the stored-record verification read is unavailable, the response uses `unknown` rather than falsely claiming the key was removed;
+- `/admin/upsert` uses the successful protected mutation receipt, not an eventually consistent readback;
 - retired webhook URL, authorization-header and secret fields are removed;
 - action types are restricted to `open_contact`, `create_lead` and `none`;
 - response bodies remain bounded and strict UTF-8 JSON;
 - malformed internal JSON fails closed with a bounded internal-response error;
 - the response remains `Cache-Control: no-store`.
 
-The browser console also redacts secret-shaped fields before displaying response JSON. That client-side redaction is defence in depth, not the authoritative security boundary.
+The browser console also redacts secret-shaped fields before displaying response JSON. It explicitly allows the non-secret `botKeyConfigured` and `botKeyStatus` fields so operators can see the truthful state. That client-side redaction is defence in depth, not the authoritative security boundary.
 
 ## Retired webhook credentials
 
@@ -79,7 +94,7 @@ npm run typecheck
 npm run check:bundle
 ```
 
-`npm run check:security` automatically runs the focused config-secret check first through the npm `precheck:security` lifecycle hook. The read-only GitHub Actions workflow runs the same command and does not deploy the Worker or request runtime secrets.
+`npm run check:security` automatically runs the focused config-secret check first through the npm `precheck:security` lifecycle hook. The tracked-source check independently requires that prehook, the focused checker, this document and the runtime storage boundary. The read-only GitHub Actions workflow runs the same chain and does not deploy the Worker or request runtime secrets.
 
 ## Explicit non-goals
 
@@ -88,6 +103,7 @@ This boundary does not:
 - deploy the Worker;
 - read or mutate remote KV during repository checks;
 - reveal an existing bot key;
+- persist the in-request mutation receipt;
 - turn webhook execution back on;
 - make Workers KV rate limiting transactional;
 - store raw request bodies, administrator tokens or client addresses in audit output.
