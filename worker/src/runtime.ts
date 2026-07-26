@@ -176,6 +176,7 @@ export default {
     const response = await redactAdminConfigResponse(
       routedResponse,
       pathname,
+      env.BOT_CONFIG,
     );
     return stampRuntimeContract(response);
   },
@@ -200,6 +201,7 @@ export const activeChatRuntimePosture = Object.freeze({
   rawModelConfigurationExposedInRuntimeHeaders: false,
   rawBotKeyReturnedByAdminConfigRoutes: false,
   blankBotKeyUpdateClearsExistingKey: false,
+  upsertBotKeyStatusUsesStoredRecordWhenAvailable: true,
   retiredWebhookCredentialsReturned: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
 });
