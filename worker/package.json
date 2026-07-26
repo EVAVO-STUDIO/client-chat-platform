@@ -3,9 +3,12 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "deploy": "wrangler deploy -c wrangler.jsonc",
     "dev": "wrangler dev -c wrangler.jsonc",
-    "typecheck": "tsc -p tsconfig.json --noEmit"
+    "check:security": "node scripts/check-security-contract.mjs",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "check": "npm run check:security && npm run typecheck",
+    "predeploy": "npm run check",
+    "deploy": "wrangler deploy -c wrangler.jsonc"
   },
   "devDependencies": {
     "typescript": "^5.7.3",
