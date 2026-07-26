@@ -2,7 +2,7 @@
 
 A reusable Cloudflare Worker and isolated browser widget for bounded, multi-tenant website chat.
 
-The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI fallback, blocks the historical chat action from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network and response boundaries. Neither compatibility module is the Wrangler entrypoint.
+The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI fallback, blocks the historical chat action from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, storage and response boundaries. Neither compatibility module is the Wrangler entrypoint.
 
 ## Repository structure
 
@@ -12,6 +12,7 @@ The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client
 - `shared/` — historical shared types retained for compatibility.
 - `DEPLOY.md` — Windows PowerShell activation, migration and deployment runbook.
 - `docs/security-boundary.md` — authoritative trust-boundary description.
+- `docs/admin-config-secret-boundary.md` — bot-key, retired-credential and KV identifier privacy contract.
 
 ## Enforced runtime posture
 
@@ -20,7 +21,11 @@ The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client
 - `ADMIN_TOKEN` must be 32–256 bytes, contain no whitespace and remain server-side.
 - Browser chat requires at least one exact approved origin. Wildcard origins are rejected.
 - Non-browser chat without an `Origin` header requires a 16–256 character bot key in `x-bot-key`.
-- Bot keys are not accepted in JSON and must never be embedded in the public widget.
+- Bot keys are not accepted in JSON chat requests and must never be embedded in the public widget.
+- Administrator config responses never return a bot key. They report only `botKeyConfigured` and a bounded status.
+- A blank administrator bot-key field preserves an existing key. Clearing requires the explicit reviewed sentinel documented in `docs/admin-config-secret-boundary.md`.
+- Retired webhook destinations and credentials are removed from config responses and scrubbed when an authenticated operator next saves the record.
+- Legacy chat rate-limit KV keys are replaced by `rl:v2:<sha256>` identifiers so raw client addresses are not embedded in key names.
 - Admin, chat and lead JSON bodies are media-type checked, stream bounded and structure bounded.
 - Prototype-pollution keys are rejected.
 - Public model output cannot expose the provider’s raw response or raw provider error details.
@@ -67,6 +72,8 @@ The historical rate-limit, daily-budget and lead-index implementations use Worke
 
 The explicit lead route attempts to remove a newly written record when its index write fails, but this is compensating best effort rather than an atomic transaction. Treat these controls as cost, abuse and privacy reduction, not as strict billing, compliance or high-assurance coordination. A stronger tier should move counters and coordinated lead storage to a Durable Object or another transactional service.
 
+The chat rate-limit key is pseudonymous rather than anonymous. Hashing removes the raw client address from the KV key name but does not make the limiter transactional or suitable as a compliance-grade identity system.
+
 ## Source-control security
 
 GitHub currently reports this repository as public. The source therefore assumes that every tracked file may be read by anyone.
@@ -80,11 +87,12 @@ npm run check
 The check chain is deliberately ordered:
 
 1. `npm run check:source-secrets`
-2. `npm run check:security`
-3. `npm run typecheck`
-4. `npm run check:bundle`
+2. `npm run check:config-secrets`, automatically invoked by the `precheck:security` lifecycle hook
+3. `npm run check:security`
+4. `npm run typecheck`
+5. `npm run check:bundle`
 
-The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
+The config-secret gate verifies server-side bot-key projection, preservation and explicit clearing, retired webhook credential removal, pseudonymous rate-limit keys and the corresponding documentation. The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
 
 The tracked-source gate rejects:
 
@@ -108,7 +116,11 @@ cd .\worker
 cmd /c "npm ci --no-audit --no-fund"
 Copy-Item ..\.dev.vars.example .\.dev.vars
 # Replace the ADMIN_TOKEN placeholder in .dev.vars with a random server-only value.
-cmd /c "npm run check"
+cmd /c "npm run check:source-secrets"
+cmd /c "npm run check:config-secrets"
+cmd /c "npm run check:security"
+cmd /c "npm run typecheck"
+cmd /c "npm run check:bundle"
 cmd /c "npm run dev"
 ```
 
@@ -177,6 +189,6 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The Worker package’s `predeploy` hook reruns source-secret safety, the deterministic boundary contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
+The Worker package’s `predeploy` hook reruns source-secret safety, config-secret safety, the deterministic boundary contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
 
 See [`DEPLOY.md`](DEPLOY.md) for the complete activation, migration, verification and operator procedure.
