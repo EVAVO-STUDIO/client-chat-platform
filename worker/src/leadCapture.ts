@@ -33,7 +33,7 @@ const LEAD_FIELDS = new Set([
   "sourcePath",
 ]);
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-const LEAD_KEY_PATTERN = /^lead:[A-Za-z0-9_-]{1,64}:\d{10,16}:[a-f0-9]{16}$/;
+const LEAD_KEY_PATTERN = /^lead:[A-Za-z0-9_-]{1,64}:\d{10,16}:[a-z0-9]{4,16}$/i;
 
 function secureHeaders(initial?: HeadersInit) {
   const headers = new Headers(initial);
@@ -367,5 +367,6 @@ export const explicitLeadCapturePosture = Object.freeze({
   externalNetworkCalls: false,
   bestEffortKvRateLimit: true,
   transactionalIndexGuarantee: false,
+  historicalLeadIndexCompatibilityRequired: true,
   rawLeadEchoedInResponse: false,
 });
