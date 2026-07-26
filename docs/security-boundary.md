@@ -7,10 +7,10 @@ This document describes the active trust boundary for `EVAVO-STUDIO/client-chat-
 The deployed Worker entrypoint is:
 
 ```text
-worker/src/hardened.ts
+worker/src/runtime.ts
 ```
 
-`worker/src/index.ts` is historical compatibility code. It is imported only behind the hardened router and must not be configured as the Wrangler entrypoint.
+The entrypoint removes retired request aliases and constrains model selection before calling `worker/src/hardened.ts`. The hardened router then delegates selected compatibility operations to `worker/src/index.ts`. Neither compatibility module may be configured as the Wrangler entrypoint.
 
 ## Trust zones
 
@@ -50,7 +50,7 @@ Every `/admin/*` request must:
 - originate from an allowed hosted admin origin or a localhost development origin when a browser sends `Origin`;
 - use a bounded JSON object for routes that accept a body.
 
-`x-admin-token` is not part of the active boundary.
+`x-admin-token` is retired. `worker/src/runtime.ts` removes it before any route or compatibility adapter sees the request. Only `Authorization: Bearer ...` is authoritative.
 
 ### Cloudflare bindings
 
@@ -61,6 +61,18 @@ The Worker uses:
 - `KB_CACHE` KV for bounded knowledge-cache records and historical best-effort counters.
 
 KV namespace identifiers in Wrangler configuration are binding identifiers, not administrator credentials. Real Worker secrets belong in Cloudflare secret storage or an ignored local `.dev.vars` file.
+
+## Final runtime boundary
+
+`worker/src/runtime.ts` is intentionally narrow. It:
+
+- removes the retired administrator header globally;
+- validates the model identifier immediately before the Workers AI binding receives it;
+- replaces a missing, malformed or known-retired model with `@cf/meta/llama-3.2-3b-instruct`;
+- delegates every HTTP route to the hardened router;
+- stamps responses with `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1`.
+
+The runtime fallback does not mutate KV and does not disclose model substitution in response data. Operators should still resave old bot records so stored configuration truthfully describes runtime behaviour.
 
 ## Request boundary
 
@@ -210,6 +222,8 @@ The historical model adapter is invoked only after the hardened router has:
 - replaced live retrieval with verified cached excerpts;
 - removed bot-key enforcement from the delegated configuration;
 - removed unsafe action configuration.
+
+The final runtime then validates the actual model argument presented to Workers AI. This protects old stored records and future compatibility code from selecting an empty, malformed or known-retired model.
 
 The returned response is re-read through a bounded stream. The public response:
 
