@@ -53,15 +53,15 @@
       <div>
         <p class="eyebrow">EVAVO internal operator surface</p>
         <h1>Client Chat Platform</h1>
-        <p class="intro">Configure approved browser origins, curated knowledge, cached public sources and bounded usage. The admin token stays in this tab only and is never persisted by this page.</p>
+        <p class="intro">Configure exact browser origins, approved knowledge, cached public sources, visitor-approved follow-up and bounded usage. The admin token stays in this tab only and is never persisted by this page.</p>
       </div>
-      <span class="badge">Hardened contract v2</span>
+      <span class="badge">Active runtime v2</span>
     </header>
 
     <form id="configForm" class="card" novalidate>
       <section class="section">
         <h2 class="section-title">Connection</h2>
-        <p class="section-copy">The Worker accepts exact Bearer authentication. Hosted admin pages must be listed in the Worker’s <code>ADMIN_ALLOWED_ORIGINS</code>; localhost is accepted for development.</p>
+        <p class="section-copy">The Worker accepts exact Bearer authentication. Hosted admin pages must be listed in <code>ADMIN_ALLOWED_ORIGINS</code>; localhost is accepted for development.</p>
         <div class="grid">
           <label class="span-8">Worker API origin
             <input id="apiBase" type="url" inputmode="url" autocomplete="url" spellcheck="false" placeholder="https://client-chat-platform.example.workers.dev" required maxlength="2048" />
@@ -76,7 +76,7 @@
 
       <section class="section">
         <h2 class="section-title">Bot identity and access</h2>
-        <p class="section-copy">Browser chat is allowed only from exact origins. Wildcards are intentionally unsupported. A bot key is optional for trusted non-browser clients that do not send an Origin header.</p>
+        <p class="section-copy">Browser chat is allowed only from exact origins. Wildcards are intentionally unsupported. A bot key is optional for trusted non-browser chat clients that do not send an Origin header.</p>
         <div class="grid">
           <label class="span-4">Bot ID
             <input id="botId" autocomplete="off" spellcheck="false" placeholder="evavo" required maxlength="64" pattern="[A-Za-z0-9_-]{1,64}" />
@@ -91,10 +91,13 @@
             <textarea id="allowedOrigins" required maxlength="6000" placeholder="https://evavo.com.au&#10;https://www.evavo.com.au"></textarea>
             <span class="help">One exact HTTPS origin per line. Local development may use http://localhost:PORT or http://127.0.0.1:PORT.</span>
           </label>
-          <label class="span-4">Server bot key (optional)
-            <input id="botKey" type="password" autocomplete="off" spellcheck="false" minlength="16" maxlength="256" placeholder="Leave empty for browser-only use" />
-            <span class="help">Do not embed this key in public HTML or the browser widget.</span>
-          </label>
+          <div class="span-4">
+            <label>Server bot key (optional)
+              <input id="botKey" type="password" autocomplete="off" spellcheck="false" minlength="16" maxlength="256" placeholder="Enter a new key to set or rotate" />
+              <span id="botKeyState" class="help">Blank creates no key for a new bot and preserves an existing key after loading.</span>
+            </label>
+            <label class="check" style="margin-top:10px"><input id="clearBotKey" type="checkbox" />Clear the existing server bot key on save</label>
+          </div>
         </div>
       </section>
 
@@ -163,11 +166,11 @@
 
       <section class="section">
         <h2 class="section-title">Safe actions</h2>
-        <p class="section-copy">The hardened router supports contact navigation and internal KV lead capture only. External webhook configuration is rejected.</p>
+        <p class="section-copy">The model may offer contact navigation or propose a follow-up. A lead is created only after the visitor reviews the exact email and message, then selects Share for follow-up. Explicit lead records expire after 90 days. External webhook configuration is rejected.</p>
         <div class="grid">
-          <div class="span-4 check"><input id="actionsEnabled" type="checkbox" /><label for="actionsEnabled">Allow model actions</label></div>
-          <div class="span-4 check"><input id="allowContact" type="checkbox" checked /><label for="allowContact">Open contact path</label></div>
-          <div class="span-4 check"><input id="allowLead" type="checkbox" /><label for="allowLead">Store internal lead record</label></div>
+          <div class="span-4 check"><input id="actionsEnabled" type="checkbox" /><label for="actionsEnabled">Allow reviewed action proposals</label></div>
+          <div class="span-4 check"><input id="allowContact" type="checkbox" checked /><label for="allowContact">Offer contact navigation</label></div>
+          <div class="span-4 check"><input id="allowLead" type="checkbox" /><label for="allowLead">Offer visitor-approved follow-up</label></div>
         </div>
       </section>
 
@@ -184,7 +187,7 @@
 
       <section class="section">
         <h2 class="section-title">Sanitised result</h2>
-        <p class="section-copy">Secret-like fields are redacted locally before this response is displayed.</p>
+        <p class="section-copy">The Worker redacts bot keys and retired secret-bearing fields before returning configuration. This page also redacts secret-like fields locally.</p>
         <pre id="out" tabindex="0">{}</pre>
       </section>
     </form>
@@ -193,6 +196,8 @@
 <script>
 (() => {
   "use strict";
+  const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
+  const MAX_ADMIN_RESPONSE_BYTES = 512 * 1024;
   const byId = (id) => document.getElementById(id);
   const form = byId("configForm");
   const status = byId("status");
@@ -220,7 +225,8 @@
     const raw = text("apiBase");
     let url;
     try { url = new URL(raw); } catch { throw new Error("Enter a valid Worker API origin."); }
-    const local = url.hostname === "localhost" || url.hostname === "127.0.0.1" || url.hostname === "::1" || url.hostname === "[::1]";
+    const host = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    const local = host === "localhost" || host === "127.0.0.1" || host === "::1";
     if ((url.protocol !== "https:" && !(url.protocol === "http:" && local)) || url.username || url.password || url.search || url.hash || (url.pathname !== "/" && url.pathname !== "")) {
       throw new Error("Worker API must be an HTTPS origin without credentials, path, query or fragment.");
     }
@@ -277,8 +283,11 @@
     return value;
   }
 
-  function validBotKey() {
+  function requestedBotKey() {
+    const clear = byId("clearBotKey").checked;
     const value = text("botKey");
+    if (clear && value) throw new Error("Choose either a replacement bot key or Clear existing key, not both.");
+    if (clear) return BOT_KEY_CLEAR_SENTINEL;
     if (!value) return "";
     if (/\s/.test(value) || value.length < 16 || value.length > 256) throw new Error("Bot key must be 16–256 characters with no whitespace.");
     return value;
@@ -306,7 +315,7 @@
       leadMode: text("leadMode"),
       qualifyingQuestions: lines("qualifyingQuestions"),
       allowedOrigins: validatedOrigins(),
-      botKey: validBotKey(),
+      botKey: requestedBotKey(),
       knowledge: text("knowledge"),
       knowledgeUrls: validatedKnowledgeUrls(),
       ragEnabled: byId("ragEnabled").checked,
@@ -333,6 +342,7 @@
   }
 
   function redact(value, key = "") {
+    if (key === "botKeyConfigured") return value;
     if (/token|secret|password|botkey|authorization/i.test(key)) return "[redacted]";
     if (Array.isArray(value)) return value.map((item) => redact(item));
     if (value && typeof value === "object") return Object.fromEntries(Object.entries(value).map(([name, nested]) => [name, redact(nested, name)]));
@@ -341,6 +351,40 @@
 
   function show(value) {
     output.textContent = JSON.stringify(redact(value), null, 2);
+  }
+
+  async function readJsonBounded(response) {
+    const declared = response.headers.get("content-length");
+    if (declared !== null && (!/^\d+$/.test(declared) || Number(declared) > MAX_ADMIN_RESPONSE_BYTES)) throw new Error("The Worker returned an invalid or oversized response.");
+    if (!response.body) return {};
+    const reader = response.body.getReader();
+    const chunks = [];
+    let total = 0;
+    try {
+      while (true) {
+        const next = await reader.read();
+        if (next.done) break;
+        if (!next.value) continue;
+        total += next.value.byteLength;
+        if (total > MAX_ADMIN_RESPONSE_BYTES) {
+          await reader.cancel("response_too_large").catch(() => undefined);
+          throw new Error("The Worker returned an invalid or oversized response.");
+        }
+        chunks.push(next.value);
+      }
+    } finally {
+      reader.releaseLock();
+    }
+    const combined = new Uint8Array(total);
+    let offset = 0;
+    for (const chunk of chunks) {
+      combined.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+    const source = new TextDecoder("utf-8", { fatal: true }).decode(combined);
+    const value = JSON.parse(source);
+    if (!value || typeof value !== "object" || Array.isArray(value)) throw new Error("The Worker returned invalid JSON.");
+    return value;
   }
 
   async function request(path, body = {}) {
@@ -357,7 +401,7 @@
         referrerPolicy: "no-referrer",
         signal: controller.signal,
       });
-      const data = await response.json().catch(() => ({ ok: false, error: "invalid_json_response" }));
+      const data = await readJsonBounded(response);
       show({ status: response.status, data });
       if (!response.ok || data?.ok === false) throw new Error(String(data?.error || `Request failed with HTTP ${response.status}.`));
       return data;
@@ -376,7 +420,11 @@
     setText("leadMode", ["soft","balanced","direct"].includes(config.leadMode) ? config.leadMode : "balanced");
     setText("qualifyingQuestions", (config.qualifyingQuestions || []).join("\n"));
     setText("allowedOrigins", (config.allowedOrigins || []).join("\n"));
-    setText("botKey", config.botKey || "");
+    setText("botKey", "");
+    byId("clearBotKey").checked = false;
+    byId("botKeyState").textContent = config.botKeyConfigured === true
+      ? "An existing server bot key is configured. Blank preserves it; enter a replacement to rotate it, or select Clear existing key."
+      : "No server bot key is configured. Blank keeps browser-only access; enter a key to enable trusted non-browser chat clients.";
     setText("knowledge", config.knowledge);
     setText("knowledgeUrls", (config.knowledgeUrls || []).join("\n"));
     byId("ragEnabled").checked = config.ragEnabled === true;
@@ -415,7 +463,11 @@
   form.addEventListener("submit", (event) => {
     event.preventDefault();
     if (!form.reportValidity()) return;
-    void run("Saving reviewed configuration", () => request("/admin/upsert", configPayload())).catch(() => undefined);
+    void run("Saving reviewed configuration", async () => {
+      const result = await request("/admin/upsert", configPayload());
+      if (result.cfg) applyConfig(result.cfg);
+      return result;
+    }).catch(() => undefined);
   });
 
   byId("loadBtn").addEventListener("click", () => {
