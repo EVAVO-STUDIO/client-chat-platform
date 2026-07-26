@@ -1,35 +1,38 @@
 import legacyWorker, { type Env as LegacyEnv } from "./index";
 import {
+  browserOriginDecision,
+  buildSafeChatConfig,
+  normalizeBotId,
+  parseStoredConfig,
+  refreshBotKnowledge,
+  resolveBotId,
+  safeStoredNetworkConfig,
+  sanitizeUpsertConfig,
+  withBotConfigOverride,
+  type JsonObject,
+} from "./configBoundary";
+import {
   ADMIN_REQUEST_MAX_BYTES,
   CHAT_REQUEST_MAX_BYTES,
-  fetchBoundedPublicText,
+  boundedSecretEqual,
+  configuredAdminTokenAllowed,
   isAdminRequestAuthorized,
   normalizeAllowedOrigin,
-  normalizePublicHttpsUrl,
   readBoundedJsonObject,
 } from "./security";
 
-export interface Env extends LegacyEnv {}
-
-type JsonObject = Record<string, unknown>;
-type StoredBotConfig = JsonObject & {
-  botId?: unknown;
-  allowedOrigins?: unknown;
-  botKey?: unknown;
-  knowledge?: unknown;
-  knowledgeUrls?: unknown;
-  ragEnabled?: unknown;
-  ragMaxUrlsPerRequest?: unknown;
-  ragCacheTtlSeconds?: unknown;
-  contactUrl?: unknown;
-  actions?: unknown;
-};
+export interface Env extends LegacyEnv {
+  ADMIN_ALLOWED_ORIGINS?: string;
+}
 
 const ADMIN_PREFIX = "/admin/";
-const BOT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const MAX_SAFE_RESPONSE_BYTES = 512 * 1024;
-const MAX_INJECTED_RAG_CHARS = 60_000;
-const MAX_KB_REFRESH_URLS = 20;
+const MAX_CHAT_MESSAGES = 30;
+const MAX_CHAT_MESSAGE_CHARS = 8_000;
+const MAX_TOTAL_CHAT_CHARS = 75_000;
+const BOT_KEY_MIN_BYTES = 16;
+const BOT_KEY_MAX_BYTES = 256;
+const MAX_ADMIN_ORIGINS = 12;
 const ADMIN_JSON_ROUTES = new Set([
   "/admin/upsert",
   "/admin/get",
@@ -39,6 +42,15 @@ const ADMIN_JSON_ROUTES = new Set([
   "/admin/delete",
   "/admin/nuke",
 ]);
+const LOOPBACK_ADMIN_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
+
+function corsHeaders(origin: string | null) {
+  if (!origin) return undefined;
+  return {
+    "Access-Control-Allow-Origin": origin,
+    Vary: "Origin",
+  } as const;
+}
 
 function secureHeaders(initial?: HeadersInit) {
   const headers = new Headers(initial);
@@ -46,6 +58,7 @@ function secureHeaders(initial?: HeadersInit) {
   headers.set("X-Content-Type-Options", "nosniff");
   headers.set("Referrer-Policy", "no-referrer");
   headers.set("X-Frame-Options", "DENY");
+  headers.set("Cross-Origin-Resource-Policy", "cross-origin");
   return headers;
 }
 
@@ -55,364 +68,125 @@ function json(status: number, body: JsonObject, initialHeaders?: HeadersInit) {
   return new Response(JSON.stringify(body), { status, headers });
 }
 
-function configuredAdminTokenAllowed(value: unknown) {
-  if (typeof value !== "string" || !value || /\s/.test(value)) return false;
-  const bytes = new TextEncoder().encode(value).byteLength;
-  return bytes >= 32 && bytes <= 256;
-}
-
-function rebuildJsonRequest(request: Request, value: JsonObject) {
+function rebuildJsonRequest(
+  request: Request,
+  value: JsonObject,
+  preserveAuthorization: boolean,
+) {
   const headers = new Headers(request.headers);
   headers.set("Content-Type", "application/json; charset=utf-8");
   headers.delete("Content-Length");
   headers.delete("x-admin-token");
+  if (!preserveAuthorization) headers.delete("Authorization");
   return new Request(request, {
     headers,
     body: JSON.stringify(value),
   });
 }
 
-function botId(value: unknown) {
-  const candidate = typeof value === "string" ? value.trim() : "";
-  return BOT_ID_PATTERN.test(candidate) ? candidate : null;
-}
-
-function parseStoredConfig(raw: string | null): StoredBotConfig | null {
-  if (!raw) return null;
+function loopbackAdminOrigin(raw: string) {
   try {
-    const value = JSON.parse(raw) as unknown;
-    return value && typeof value === "object" && !Array.isArray(value)
-      ? (value as StoredBotConfig)
-      : null;
+    const url = new URL(raw);
+    const hostname = url.hostname.replace(/^\[|\]$/g, "").toLowerCase();
+    if (
+      !LOOPBACK_ADMIN_HOSTS.has(hostname) ||
+      (url.protocol !== "http:" && url.protocol !== "https:") ||
+      url.username ||
+      url.password ||
+      url.pathname !== "/" ||
+      url.search ||
+      url.hash
+    ) {
+      return null;
+    }
+    return url.origin;
   } catch {
     return null;
   }
 }
 
-function normalizeContactUrl(value: unknown) {
-  const candidate = typeof value === "string" ? value.trim() : "";
-  if (!candidate) return "/contact";
-  if (
-    candidate.startsWith("/") &&
-    !candidate.startsWith("//") &&
-    !candidate.includes("\\") &&
-    !candidate.includes("\u0000")
-  ) {
-    return candidate.slice(0, 512);
-  }
-  return normalizePublicHttpsUrl(candidate);
-}
-
-function normalizeOriginList(value: unknown) {
-  if (!Array.isArray(value) || value.length === 0 || value.length > 25) return null;
+function configuredAdminOrigins(env: Env) {
+  const raw = String(env.ADMIN_ALLOWED_ORIGINS || "").trim();
+  if (!raw) return [];
+  const candidates = raw
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (candidates.length > MAX_ADMIN_ORIGINS) return [];
   const origins: string[] = [];
-  for (const item of value) {
-    const normalized = normalizeAllowedOrigin(item);
-    if (!normalized) return null;
+  for (const candidate of candidates) {
+    const normalized = normalizeAllowedOrigin(candidate);
+    if (!normalized) return [];
     origins.push(normalized);
   }
   return Array.from(new Set(origins));
 }
 
-function normalizeKnowledgeUrls(value: unknown) {
-  if (value === undefined) return undefined;
-  if (!Array.isArray(value) || value.length > 50) return null;
-  const urls: string[] = [];
-  for (const item of value) {
-    const normalized = normalizePublicHttpsUrl(item);
-    if (!normalized) return null;
-    urls.push(normalized);
-  }
-  return Array.from(new Set(urls));
-}
-
-function normalizeActionConfig(value: unknown) {
-  if (value === undefined) return undefined;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
-  const source = value as JsonObject;
-  if (source.webhookUrl || source.webhookAuthHeader || source.webhookSecret) {
-    return null;
-  }
-  const allowed = Array.isArray(source.allowedActionTypes)
-    ? source.allowedActionTypes.filter(
-        (item): item is string =>
-          item === "open_contact" || item === "create_lead" || item === "none",
-      )
-    : undefined;
-  if (
-    Array.isArray(source.allowedActionTypes) &&
-    allowed?.length !== source.allowedActionTypes.length
-  ) {
-    return null;
-  }
-  return {
-    actionsEnabled: source.actionsEnabled === true,
-    allowedActionTypes: allowed,
-  };
-}
-
-function sanitizeUpsertPayload(value: JsonObject) {
-  const id = botId(value.botId);
-  if (!id) return null;
-  const allowedOrigins = normalizeOriginList(value.allowedOrigins);
-  if (!allowedOrigins) return null;
-  const knowledgeUrls = normalizeKnowledgeUrls(value.knowledgeUrls);
-  if (knowledgeUrls === null) return null;
-  const actions = normalizeActionConfig(value.actions);
-  if (actions === null) return null;
-  const contactUrl = normalizeContactUrl(value.contactUrl);
-  if (!contactUrl) return null;
-  if (
-    value.model !== undefined &&
-    (typeof value.model !== "string" ||
-      !/^@cf\/[A-Za-z0-9._/-]{1,120}$/.test(value.model.trim()))
-  ) {
-    return null;
-  }
-  if (
-    value.botKey !== undefined &&
-    (typeof value.botKey !== "string" ||
-      value.botKey.length > 256 ||
-      /[\s\u0000-\u001f\u007f]/.test(value.botKey))
-  ) {
-    return null;
-  }
-  return {
-    ...value,
-    botId: id,
-    allowedOrigins,
-    knowledgeUrls,
-    actions,
-    contactUrl,
-    debug: undefined,
-  };
-}
-
-function safeStoredNetworkConfig(config: StoredBotConfig) {
-  const origins = normalizeOriginList(config.allowedOrigins);
-  const knowledgeUrls = normalizeKnowledgeUrls(config.knowledgeUrls);
-  const contactUrl = normalizeContactUrl(config.contactUrl);
-  return origins && knowledgeUrls !== null && contactUrl
-    ? { origins, knowledgeUrls: knowledgeUrls ?? [], contactUrl }
-    : null;
-}
-
-function wildcardOriginMatch(origin: string, allowed: string) {
-  if (!allowed.includes("*")) return origin === allowed;
-  const match = /^https:\/\/\*\.(.+)$/i.exec(allowed);
-  if (!match) return false;
-  try {
-    const actual = new URL(origin);
-    const suffix = match[1].toLowerCase();
-    const host = actual.hostname.toLowerCase();
-    return (
-      actual.protocol === "https:" &&
-      host !== suffix &&
-      host.endsWith(`.${suffix}`)
-    );
-  } catch {
-    return false;
-  }
-}
-
-function browserOriginAllowed(request: Request, origins: readonly string[]) {
+function adminOriginDecision(request: Request, env: Env) {
   const raw = String(request.headers.get("origin") || "").trim();
   if (!raw) return null;
-  try {
-    const origin = new URL(raw).origin;
-    return origins.some((allowed) => wildcardOriginMatch(origin, allowed))
-      ? origin
-      : false;
-  } catch {
-    return false;
-  }
+  const loopback = loopbackAdminOrigin(raw);
+  if (loopback) return loopback;
+  const normalized = normalizeAllowedOrigin(raw);
+  return normalized && configuredAdminOrigins(env).includes(normalized)
+    ? normalized
+    : false;
 }
 
-async function resolveBotId(env: Env, requested: string) {
-  const exact = await env.BOT_CONFIG.get(`cfg:${requested}`);
-  if (exact) return requested;
-  const indexRaw = await env.BOT_CONFIG.get("cfg:index");
-  let ids: string[] = [];
-  try {
-    const parsed = JSON.parse(indexRaw || "[]") as unknown;
-    ids = Array.isArray(parsed)
-      ? parsed.filter((item): item is string => typeof item === "string")
-      : [];
-  } catch {
-    ids = [];
-  }
-  const loose = requested.toLowerCase().replace(/[^a-z0-9]/g, "");
-  return (
-    ids.find(
-      (id) =>
-        id.toLowerCase() === requested.toLowerCase() ||
-        id.toLowerCase().replace(/[^a-z0-9]/g, "") === loose,
-    ) || null
-  );
-}
-
-function stripHtml(value: string) {
-  return value
-    .replace(/<script\b[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style>/gi, " ")
-    .replace(/<noscript\b[\s\S]*?<\/noscript>/gi, " ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
-function relevantKnowledgeUrls(question: string, urls: readonly string[], maximum: number) {
-  const terms = question
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((term) => term.length >= 3)
-    .slice(0, 20);
-  return urls
-    .map((url) => ({
-      url,
-      score: terms.reduce(
-        (score, term) => score + (url.toLowerCase().includes(term) ? 1 : 0),
-        0,
-      ),
-    }))
-    .sort((left, right) => right.score - left.score)
-    .slice(0, maximum)
-    .map((item) => item.url);
-}
-
-async function safeConfigForChat(
-  env: Env,
-  config: StoredBotConfig,
-  network: NonNullable<ReturnType<typeof safeStoredNetworkConfig>>,
-  body: JsonObject,
-) {
-  const messages = Array.isArray(body.messages) ? body.messages : [];
-  const latestUser = [...messages]
-    .reverse()
-    .find(
-      (message) =>
-        message &&
-        typeof message === "object" &&
-        !Array.isArray(message) &&
-        (message as JsonObject).role === "user" &&
-        typeof (message as JsonObject).content === "string",
-    ) as JsonObject | undefined;
-  const question = typeof latestUser?.content === "string" ? latestUser.content : "";
-  const maximumUrls = Math.max(
-    0,
-    Math.min(
-      3,
-      Number.isFinite(Number(config.ragMaxUrlsPerRequest))
-        ? Math.trunc(Number(config.ragMaxUrlsPerRequest))
-        : 2,
-    ),
-  );
-  const sources: string[] = [];
-  if (config.ragEnabled === true && maximumUrls > 0) {
-    for (const url of relevantKnowledgeUrls(
-      question,
-      network.knowledgeUrls,
-      maximumUrls,
-    )) {
-      const fetched = await fetchBoundedPublicText(url, {
-        maximumBytes: 256 * 1024,
-        timeoutMs: 8_000,
-        maximumRedirects: 3,
-      });
-      if (!fetched) continue;
-      const text = stripHtml(fetched.text).slice(0, 20_000);
-      if (text) sources.push(`Source: ${fetched.finalUrl}\n${text}`);
-      if (sources.join("\n\n").length >= MAX_INJECTED_RAG_CHARS) break;
+async function readBoundedResponseText(response: Response, maximumBytes: number) {
+  const declared = response.headers.get("content-length");
+  if (declared !== null) {
+    if (!/^\d+$/.test(declared) || Number(declared) > maximumBytes) {
+      await response.body?.cancel().catch(() => undefined);
+      return null;
     }
   }
-
-  const existingKnowledge =
-    typeof config.knowledge === "string"
-      ? config.knowledge.slice(0, 200_000)
-      : "";
-  const externalKnowledge = sources.join("\n\n").slice(0, MAX_INJECTED_RAG_CHARS);
-  const actions =
-    config.actions && typeof config.actions === "object" && !Array.isArray(config.actions)
-      ? (config.actions as JsonObject)
-      : {};
-  const allowedActions = Array.isArray(actions.allowedActionTypes)
-    ? actions.allowedActionTypes.filter(
-        (item) =>
-          item === "open_contact" || item === "create_lead" || item === "none",
-      )
-    : ["open_contact", "create_lead", "none"];
-
-  return {
-    ...config,
-    allowedOrigins: network.origins,
-    contactUrl: network.contactUrl,
-    knowledge: [existingKnowledge, externalKnowledge].filter(Boolean).join("\n\n"),
-    knowledgeUrls: [],
-    ragEnabled: false,
-    actions: {
-      actionsEnabled: actions.actionsEnabled === true,
-      allowedActionTypes: allowedActions,
-    },
-  };
-}
-
-function envWithChatConfig(env: Env, canonicalBotId: string, config: JsonObject): Env {
-  const binding = new Proxy(env.BOT_CONFIG, {
-    get(target, property, receiver) {
-      if (property === "get") {
-        return async (key: string, ...args: unknown[]) => {
-          if (key === `cfg:${canonicalBotId}`) return JSON.stringify(config);
-          return (target.get as (...values: unknown[]) => unknown).call(target, key, ...args);
-        };
+  if (!response.body) return "";
+  const reader = response.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  try {
+    while (true) {
+      const next = await reader.read();
+      if (next.done) break;
+      if (!next.value) continue;
+      total += next.value.byteLength;
+      if (total > maximumBytes) {
+        await reader.cancel("response_too_large").catch(() => undefined);
+        return null;
       }
-      const value = Reflect.get(target, property, receiver);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
-  return { ...env, BOT_CONFIG: binding };
-}
-
-async function refreshKnowledge(env: Env, config: StoredBotConfig) {
-  const network = safeStoredNetworkConfig(config);
-  if (!network) return null;
-  const ttl = Math.max(
-    60,
-    Math.min(
-      7 * 86_400,
-      Number.isFinite(Number(config.ragCacheTtlSeconds))
-        ? Math.trunc(Number(config.ragCacheTtlSeconds))
-        : 86_400,
-    ),
-  );
-  let refreshed = 0;
-  for (const url of network.knowledgeUrls.slice(0, MAX_KB_REFRESH_URLS)) {
-    const fetched = await fetchBoundedPublicText(url, {
-      maximumBytes: 256 * 1024,
-      timeoutMs: 8_000,
-      maximumRedirects: 3,
-    });
-    if (!fetched) continue;
-    const clipped = stripHtml(fetched.text).slice(0, 60_000);
-    if (!clipped) continue;
-    await env.KB_CACHE.put(`kb:${url}`, clipped, { expirationTtl: ttl });
-    refreshed += 1;
+      chunks.push(next.value);
+    }
+  } catch {
+    return null;
+  } finally {
+    reader.releaseLock();
   }
-  return refreshed;
+  const combined = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    combined.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  try {
+    return new TextDecoder("utf-8", { fatal: true }).decode(combined);
+  } catch {
+    return null;
+  }
 }
 
-async function sanitizedLegacyResponse(response: Response) {
-  const headers = secureHeaders(response.headers);
-  const contentType = String(headers.get("content-type") || "").toLowerCase();
+async function sanitizedLegacyResponse(
+  response: Response,
+  origin: string | null,
+) {
+  const contentType = String(response.headers.get("content-type") || "").toLowerCase();
   if (!contentType.includes("application/json")) {
-    return new Response(response.body, { status: response.status, headers });
+    await response.body?.cancel().catch(() => undefined);
+    return json(502, { ok: false, error: "invalid_internal_response" }, corsHeaders(origin));
   }
-  const declared = Number(headers.get("content-length"));
-  if (Number.isFinite(declared) && declared > MAX_SAFE_RESPONSE_BYTES) {
-    return json(502, { ok: false, error: "response_too_large" });
-  }
-  const text = await response.text();
-  if (new TextEncoder().encode(text).byteLength > MAX_SAFE_RESPONSE_BYTES) {
-    return json(502, { ok: false, error: "response_too_large" });
+  const text = await readBoundedResponseText(response, MAX_SAFE_RESPONSE_BYTES);
+  if (text === null) {
+    return json(502, { ok: false, error: "response_too_large" }, corsHeaders(origin));
   }
   let payload: JsonObject;
   try {
@@ -424,8 +198,22 @@ async function sanitizedLegacyResponse(response: Response) {
     payload = { ok: false, error: "invalid_internal_response" };
   }
   delete payload.raw;
+  delete payload.stack;
+  delete payload.cause;
   if (response.status >= 400) delete payload.detail;
-  return json(response.status, payload, headers);
+
+  const headers = secureHeaders(corsHeaders(origin));
+  const requestId = response.headers.get("x-request-id");
+  const retryAfter = response.headers.get("retry-after");
+  if (requestId) headers.set("x-request-id", requestId);
+  if (retryAfter && /^\d+$/.test(retryAfter)) {
+    headers.set("Retry-After", retryAfter);
+  }
+  headers.set("Content-Type", "application/json; charset=utf-8");
+  return new Response(JSON.stringify(payload), {
+    status: response.status,
+    headers,
+  });
 }
 
 async function parseJsonRoute(request: Request, maximumBytes: number) {
@@ -438,20 +226,63 @@ async function parseJsonRoute(request: Request, maximumBytes: number) {
       } as const);
 }
 
-function corsPreflight(request: Request, admin: boolean) {
-  const origin = String(request.headers.get("origin") || "").trim();
-  const headers = secureHeaders({
+function sanitizeChatPayload(value: JsonObject) {
+  if (value.debug !== undefined && value.debug !== false) return null;
+  if (value.botKey !== undefined) return null;
+  const botId = normalizeBotId(value.botId);
+  if (!botId || !Array.isArray(value.messages)) return null;
+  if (value.messages.length === 0 || value.messages.length > MAX_CHAT_MESSAGES) {
+    return null;
+  }
+
+  const messages: Array<{ role: "user" | "assistant"; content: string }> = [];
+  let totalCharacters = 0;
+  let userMessages = 0;
+  for (const candidate of value.messages) {
+    if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+      return null;
+    }
+    const message = candidate as JsonObject;
+    const keys = Object.keys(message).sort();
+    if (JSON.stringify(keys) !== JSON.stringify(["content", "role"])) return null;
+    if (message.role !== "user" && message.role !== "assistant") return null;
+    if (typeof message.content !== "string") return null;
+    const content = message.content.trim();
+    if (!content || content.length > MAX_CHAT_MESSAGE_CHARS) return null;
+    totalCharacters += content.length;
+    if (totalCharacters > MAX_TOTAL_CHAT_CHARS) return null;
+    if (message.role === "user") userMessages += 1;
+    messages.push({ role: message.role, content });
+  }
+  if (userMessages === 0) return null;
+  return { botId, messages } as JsonObject;
+}
+
+function preflightHeaders(origin: string, admin: boolean) {
+  return secureHeaders({
+    "Access-Control-Allow-Origin": origin,
     "Access-Control-Allow-Methods": "POST, OPTIONS",
     "Access-Control-Allow-Headers": admin
       ? "Content-Type, Authorization"
       : "Content-Type, x-bot-key",
     "Access-Control-Max-Age": "600",
+    Vary: "Origin",
   });
-  if (origin) {
-    headers.set("Access-Control-Allow-Origin", origin);
-    headers.set("Vary", "Origin");
-  }
-  return new Response(null, { status: 204, headers });
+}
+
+function chatPreflight(request: Request) {
+  const raw = String(request.headers.get("origin") || "").trim();
+  const origin = normalizeAllowedOrigin(raw);
+  return origin
+    ? new Response(null, { status: 204, headers: preflightHeaders(origin, false) })
+    : json(403, { ok: false, error: "origin_not_allowed" });
+}
+
+function adminPreflight(request: Request, env: Env) {
+  const decision = adminOriginDecision(request, env);
+  return typeof decision === "string"
+    ? new Response(null, { status: 204, headers: preflightHeaders(decision, true) })
+    : json(403, { ok: false, error: "origin_not_allowed" });
 }
 
 async function handleAdmin(
@@ -459,73 +290,136 @@ async function handleAdmin(
   env: Env,
   pathname: string,
 ) {
+  const originDecision = adminOriginDecision(request, env);
+  if (originDecision === false) {
+    return json(403, { ok: false, error: "origin_not_allowed" });
+  }
+  const responseOrigin = typeof originDecision === "string" ? originDecision : null;
   if (!configuredAdminTokenAllowed(env.ADMIN_TOKEN)) {
-    return json(503, { ok: false, error: "admin_not_configured" });
+    return json(
+      503,
+      { ok: false, error: "admin_not_configured" },
+      corsHeaders(responseOrigin),
+    );
   }
   if (!(await isAdminRequestAuthorized(request, env.ADMIN_TOKEN))) {
-    return json(401, { ok: false, error: "unauthorized" });
+    return json(
+      401,
+      { ok: false, error: "unauthorized" },
+      corsHeaders(responseOrigin),
+    );
   }
 
   if (pathname === "/admin/list") {
-    return sanitizedLegacyResponse(await legacyWorker.fetch(request, env));
+    return sanitizedLegacyResponse(
+      await legacyWorker.fetch(request, env),
+      responseOrigin,
+    );
   }
   if (!ADMIN_JSON_ROUTES.has(pathname)) {
-    return json(404, { ok: false, error: "not_found" });
+    return json(
+      404,
+      { ok: false, error: "not_found" },
+      corsHeaders(responseOrigin),
+    );
   }
 
   const parsed = await parseJsonRoute(request, ADMIN_REQUEST_MAX_BYTES);
-  if (!parsed.ok) return parsed.response;
+  if (!parsed.ok) {
+    const body = await parsed.response.json().catch(() => ({
+      ok: false,
+      error: "invalid_request",
+    }));
+    return json(parsed.response.status, body as JsonObject, corsHeaders(responseOrigin));
+  }
   let value = parsed.value;
 
   if (pathname === "/admin/upsert") {
-    const sanitized = sanitizeUpsertPayload(value);
+    const sanitized = sanitizeUpsertConfig(value);
     if (!sanitized) {
-      return json(400, { ok: false, error: "unsafe_bot_configuration" });
+      return json(
+        400,
+        { ok: false, error: "unsafe_bot_configuration" },
+        corsHeaders(responseOrigin),
+      );
     }
     value = sanitized;
   }
   if (pathname === "/admin/delete" && value.confirm !== "DELETE_BOT") {
-    return json(400, { ok: false, error: "delete_confirmation_required" });
+    return json(
+      400,
+      { ok: false, error: "delete_confirmation_required" },
+      corsHeaders(responseOrigin),
+    );
   }
   if (pathname === "/admin/nuke" && value.confirm !== "DELETE_ALL_BOTS") {
-    return json(400, { ok: false, error: "nuke_confirmation_required" });
+    return json(
+      400,
+      { ok: false, error: "nuke_confirmation_required" },
+      corsHeaders(responseOrigin),
+    );
   }
   if (pathname === "/admin/leads/get") {
     const key = typeof value.key === "string" ? value.key.trim() : "";
     if (!/^lead:[A-Za-z0-9_-]{1,64}:\d{10,16}:[a-z0-9]{4,16}$/i.test(key)) {
-      return json(400, { ok: false, error: "invalid_lead_key" });
+      return json(
+        400,
+        { ok: false, error: "invalid_lead_key" },
+        corsHeaders(responseOrigin),
+      );
     }
   }
   if (pathname === "/admin/kb/refresh") {
-    const requestedBotId = botId(value.botId);
-    if (!requestedBotId) return json(400, { ok: false, error: "invalid_bot_id" });
+    const requestedBotId = normalizeBotId(value.botId);
+    if (!requestedBotId) {
+      return json(
+        400,
+        { ok: false, error: "invalid_bot_id" },
+        corsHeaders(responseOrigin),
+      );
+    }
     const canonical = await resolveBotId(env, requestedBotId);
-    if (!canonical) return json(404, { ok: false, error: "bot_not_found" });
+    if (!canonical) {
+      return json(
+        404,
+        { ok: false, error: "bot_not_found" },
+        corsHeaders(responseOrigin),
+      );
+    }
     const config = parseStoredConfig(await env.BOT_CONFIG.get(`cfg:${canonical}`));
-    if (!config) return json(404, { ok: false, error: "bot_not_found" });
-    const refreshed = await refreshKnowledge(env, config);
-    return refreshed === null
-      ? json(409, { ok: false, error: "unsafe_bot_configuration" })
-      : json(200, { ok: true, refreshed });
+    if (!config) {
+      return json(
+        404,
+        { ok: false, error: "bot_not_found" },
+        corsHeaders(responseOrigin),
+      );
+    }
+    const summary = await refreshBotKnowledge(env, config);
+    return summary === null
+      ? json(
+          409,
+          { ok: false, error: "unsafe_bot_configuration" },
+          corsHeaders(responseOrigin),
+        )
+      : json(200, { ok: true, ...summary }, corsHeaders(responseOrigin));
   }
 
-  const forwarded = rebuildJsonRequest(request, value);
-  return sanitizedLegacyResponse(await legacyWorker.fetch(forwarded, env));
+  const forwarded = rebuildJsonRequest(request, value, true);
+  return sanitizedLegacyResponse(
+    await legacyWorker.fetch(forwarded, env),
+    responseOrigin,
+  );
 }
 
 async function handleChat(request: Request, env: Env) {
   const parsed = await parseJsonRoute(request, CHAT_REQUEST_MAX_BYTES);
   if (!parsed.ok) return parsed.response;
-  const value = parsed.value;
-  if (value.debug !== undefined && value.debug !== false) {
-    return json(400, { ok: false, error: "debug_output_disabled" });
-  }
-  delete value.debug;
-
-  const requestedBotId = botId(value.botId);
-  if (!requestedBotId || !Array.isArray(value.messages) || value.messages.length === 0) {
+  const value = sanitizeChatPayload(parsed.value);
+  if (!value) {
     return json(400, { ok: false, error: "invalid_chat_request" });
   }
+
+  const requestedBotId = value.botId as string;
   const canonical = await resolveBotId(env, requestedBotId);
   if (!canonical) return json(404, { ok: false, error: "bot_not_found" });
   const config = parseStoredConfig(await env.BOT_CONFIG.get(`cfg:${canonical}`));
@@ -533,29 +427,39 @@ async function handleChat(request: Request, env: Env) {
   const network = safeStoredNetworkConfig(config);
   if (!network) return json(409, { ok: false, error: "unsafe_bot_configuration" });
 
-  const originDecision = browserOriginAllowed(request, network.origins);
+  const originDecision = browserOriginDecision(request, network.origins);
   if (originDecision === false) {
     return json(403, { ok: false, error: "origin_not_allowed" });
   }
+  const responseOrigin = typeof originDecision === "string" ? originDecision : null;
   if (originDecision === null) {
-    const configuredBotKey =
-      typeof config.botKey === "string" && config.botKey.length >= 16;
-    const providedBotKey =
-      String(request.headers.get("x-bot-key") || "").trim() ||
-      (typeof value.botKey === "string" ? value.botKey.trim() : "");
-    if (!configuredBotKey || !providedBotKey) {
+    const providedBotKey = String(request.headers.get("x-bot-key") || "").trim();
+    const authorized = await boundedSecretEqual(
+      providedBotKey,
+      network.botKey,
+      BOT_KEY_MIN_BYTES,
+      BOT_KEY_MAX_BYTES,
+    );
+    if (!authorized) {
       return json(401, { ok: false, error: "bot_key_required" });
     }
   }
 
-  const safeConfig = await safeConfigForChat(env, config, network, value);
-  const safeEnv = envWithChatConfig(env, canonical, safeConfig);
-  const forwarded = rebuildJsonRequest(request, {
-    ...value,
-    botId: canonical,
-    debug: false,
-  });
-  return sanitizedLegacyResponse(await legacyWorker.fetch(forwarded, safeEnv));
+  const safeConfig = await buildSafeChatConfig(env, config, network, value);
+  const safeEnv = withBotConfigOverride(env, canonical, safeConfig) as Env;
+  const forwarded = rebuildJsonRequest(
+    request,
+    {
+      botId: canonical,
+      messages: value.messages,
+      debug: false,
+    },
+    false,
+  );
+  return sanitizedLegacyResponse(
+    await legacyWorker.fetch(forwarded, safeEnv),
+    responseOrigin,
+  );
 }
 
 export default {
@@ -563,58 +467,90 @@ export default {
     const url = new URL(request.url);
     const pathname = url.pathname;
 
-    if (request.method === "OPTIONS") {
-      if (pathname === "/api/chat") return corsPreflight(request, false);
-      if (pathname.startsWith(ADMIN_PREFIX)) return corsPreflight(request, true);
-      return json(405, { ok: false, error: "method_not_allowed" }, { Allow: "GET, POST" });
-    }
-
-    if (pathname === "/health") {
-      if (request.method !== "GET") {
-        return json(405, { ok: false, error: "method_not_allowed" }, { Allow: "GET" });
+    try {
+      if (request.method === "OPTIONS") {
+        if (pathname === "/api/chat") return chatPreflight(request);
+        if (pathname.startsWith(ADMIN_PREFIX)) return adminPreflight(request, env);
+        return json(
+          405,
+          { ok: false, error: "method_not_allowed" },
+          { Allow: "GET, POST" },
+        );
       }
-      return json(200, {
-        ok: true,
-        service: "EVAVO Client Chat Platform",
-        adminRoutesProtected: true,
-        boundedChatRequests: true,
-        publicDebugOutput: false,
-        externalWebhookExecution: false,
-      });
-    }
 
-    if (pathname.startsWith(ADMIN_PREFIX)) {
-      if (request.method !== "POST") {
-        return json(405, { ok: false, error: "method_not_allowed" }, { Allow: "POST" });
+      if (pathname === "/health") {
+        if (request.method !== "GET") {
+          return json(
+            405,
+            { ok: false, error: "method_not_allowed" },
+            { Allow: "GET" },
+          );
+        }
+        return json(200, {
+          ok: true,
+          service: "EVAVO Client Chat Platform",
+          securityContract: "client_chat_hardened_router_v2",
+          adminRoutesProtected: true,
+          boundedChatRequests: true,
+          publicDebugOutput: false,
+          publicChatNetworkFetch: false,
+          externalWebhookExecution: false,
+        });
       }
-      return handleAdmin(request, env, pathname);
-    }
 
-    if (pathname === "/api/chat") {
-      if (request.method !== "POST") {
-        return json(405, { ok: false, error: "method_not_allowed" }, { Allow: "POST" });
+      if (pathname.startsWith(ADMIN_PREFIX)) {
+        if (request.method !== "POST") {
+          return json(
+            405,
+            { ok: false, error: "method_not_allowed" },
+            { Allow: "POST" },
+          );
+        }
+        return await handleAdmin(request, env, pathname);
       }
-      return handleChat(request, env);
-    }
 
-    return json(404, { ok: false, error: "not_found" });
+      if (pathname === "/api/chat") {
+        if (request.method !== "POST") {
+          return json(
+            405,
+            { ok: false, error: "method_not_allowed" },
+            { Allow: "POST" },
+          );
+        }
+        return await handleChat(request, env);
+      }
+
+      return json(404, { ok: false, error: "not_found" });
+    } catch {
+      return json(500, { ok: false, error: "internal_error" });
+    }
   },
 };
 
 export const hardenedChatPlatformPosture = Object.freeze({
+  contract: "client_chat_hardened_router_v2",
   legacyRouterWrapped: true,
+  legacyRouterDirectlyDeployed: false,
   boundedAdminJsonBytes: ADMIN_REQUEST_MAX_BYTES,
   boundedChatJsonBytes: CHAT_REQUEST_MAX_BYTES,
+  boundedInternalResponses: true,
   exactBearerAdminAuthentication: true,
   legacyAdminHeaderAllowed: false,
+  browserAdminOriginsRestricted: true,
+  localAdminOriginDevelopmentException: true,
   publicHealthLeaksAdminConfiguration: false,
   browserOriginsDefaultAllow: false,
+  wildcardBrowserOriginsAllowed: false,
   serverChatWithoutBotKeyAllowed: false,
+  botKeyComparedAtHardenedBoundary: true,
+  botKeyAcceptedInJsonBody: false,
   publicDebugOutputAllowed: false,
-  arbitraryRagFetchAllowed: false,
-  ragFetchesBoundedAndPublicOnly: true,
+  publicChatNetworkFetchAllowed: false,
+  cachedKnowledgeOnlyForPublicChat: true,
+  adminRefreshNetworkOnly: true,
   legacyExternalWebhookExecutionAllowed: false,
   leadCaptureAllowed: true,
   destructiveAdminConfirmationRequired: true,
   rawProviderErrorsExposed: false,
+  unexpectedErrorsSanitized: true,
 });
