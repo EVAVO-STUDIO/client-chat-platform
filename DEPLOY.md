@@ -2,8 +2,6 @@
 
 This is the authoritative Windows PowerShell procedure for validating, migrating and deploying the hardened Cloudflare Worker.
 
-Commands use `cmd /c` where useful to avoid PowerShell `npm.ps1` execution-policy problems.
-
 ## Runtime being deployed
 
 Wrangler deploys:
@@ -12,17 +10,13 @@ Wrangler deploys:
 worker/src/runtime.ts
 ```
 
-The runtime removes retired request aliases and normalises model selection before delegating to:
+The active runtime contract is:
 
 ```text
-worker/src/hardened.ts
+client_chat_active_runtime_v2
 ```
 
-The historical implementation remains behind that boundary in:
-
-```text
-worker/src/index.ts
-```
+`runtime.ts` removes retired request aliases, applies the reviewed model fallback and timeout, blocks implicit model-driven lead writes, and exposes the explicit visitor-consent route. It delegates ordinary requests to `worker/src/hardened.ts`, which wraps the historical `worker/src/index.ts` compatibility code.
 
 Do not point Wrangler directly at either compatibility module.
 
@@ -30,11 +24,9 @@ Do not point Wrangler directly at either compatibility module.
 
 - Node.js 24.
 - Git.
-- A Cloudflare account with access to the existing Worker, Workers AI and both configured KV namespaces.
+- A Cloudflare account with access to the existing Worker, Workers AI and configured KV namespaces.
 - The repository at `C:\GitRepos\client-chat-platform`.
 - The current Worker administrator token, or authority to rotate it.
-
-Confirm local tools:
 
 ```powershell
 node --version
@@ -50,7 +42,7 @@ cd .\worker
 cmd /c "npm ci --no-audit --no-fund"
 ```
 
-Use `npm ci`, not `npm install`, for validation and deployment. It must reproduce `worker/package-lock.json` exactly.
+Use `npm ci`, not `npm install`, for release validation. It must reproduce `worker/package-lock.json` exactly.
 
 ## 3. Configure local-only Worker variables
 
@@ -60,17 +52,15 @@ Copy-Item ..\.dev.vars.example .\.dev.vars
 notepad .\.dev.vars
 ```
 
-Replace:
+Replace the placeholder with a random 32–256 byte value containing no whitespace:
 
 ```text
 ADMIN_TOKEN=replace_me_with_a_random_server_only_token
 ```
 
-with a random 32–256 byte value containing no whitespace.
+`.dev.vars` is ignored and must never be committed. A hosted admin console must be listed in `ADMIN_ALLOWED_ORIGINS`; localhost and `127.0.0.1` are accepted for local development.
 
-`.dev.vars` is ignored and must never be committed. `ADMIN_ALLOWED_ORIGINS` is optional for local development because localhost and `127.0.0.1` admin origins are already accepted by the runtime.
-
-## 4. Run the complete predeployment gate
+## 4. Run the complete no-deploy release gate
 
 ```powershell
 cd C:\GitRepos\client-chat-platform\worker
@@ -79,95 +69,84 @@ cmd /c "npm run check"
 
 The order is mandatory:
 
-1. tracked-source secret scan;
-2. deterministic security architecture contract;
-3. TypeScript validation of the active entrypoint.
+1. `npm run check:source-secrets`
+2. `npm run check:security`
+3. `npm run typecheck`
+4. `npm run check:bundle`
+
+`npm run check:bundle` runs Wrangler with `--dry-run` into `.wrangler/dry-run`. It validates the active module graph and configuration without publishing the Worker.
 
 Do not continue after any failure.
 
-## 5. Start the Worker locally
+## 5. Start and inspect the Worker locally
 
 ```powershell
 cd C:\GitRepos\client-chat-platform\worker
 cmd /c "npm run dev"
 ```
 
-Wrangler normally exposes the local Worker at:
-
-```text
-http://localhost:8787
-```
-
-In another PowerShell window:
+Wrangler normally exposes the Worker at `http://localhost:8787`.
 
 ```powershell
 curl.exe -i http://localhost:8787/health
 ```
 
-Expected characteristics:
+Confirm:
 
 - HTTP `200`;
-- JSON with `ok: true`;
 - `securityContract: client_chat_hardened_router_v2`;
 - `publicChatNetworkFetch: false`;
 - `externalWebhookExecution: false`;
-- response header `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1`.
+- `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v2`;
+- no administrator-configuration disclosure.
 
-The health response must not reveal whether `ADMIN_TOKEN` is configured.
-
-## 6. Open the reviewed admin console locally
+## 6. Open the reviewed admin console
 
 ```powershell
 cd C:\GitRepos\client-chat-platform\admin
 cmd /c "npx --yes http-server . -p 4173"
 ```
 
-Open:
-
-```text
-http://localhost:4173
-```
-
-Use:
+Open `http://localhost:4173` and use:
 
 ```text
 Worker API origin: http://localhost:8787
 Admin token: the value in worker/.dev.vars
 ```
 
-The page does not persist the token. Closing or refreshing the tab clears it.
+The page does not persist the token.
 
-## 7. Review every legacy bot before production activation
+## 7. Review legacy bot records before production activation
 
 The hardened runtime fails closed when a stored bot contains unsafe network or action configuration.
 
-A legacy bot must be loaded, reviewed and resaved when it has any of the following:
+Review and resave a bot when it has:
 
 - no browser origin list;
 - wildcard origins;
 - non-HTTPS production origins;
-- origins with paths, credentials, query strings or fragments;
+- origins containing paths, credentials, query strings or fragments;
 - non-public or non-HTTPS knowledge URLs;
-- webhook URL, webhook authentication or webhook secret fields;
+- webhook URL, authentication or secret fields;
 - an invalid bot key;
 - obsolete lead mode values;
-- unbounded or malformed numeric settings.
+- malformed bounded settings.
 
 For each bot:
 
-1. Enter its Bot ID.
-2. Select **Load bot**.
-3. Add every exact public website origin that may host the widget.
-4. Remove any obsolete wildcard entry.
-5. Review the contact URL, curated knowledge and public knowledge URLs.
-6. Keep external webhook execution disabled.
-7. Select **Save reviewed configuration**.
-8. Select **Refresh approved cache**.
-9. Inspect the sanitised result for `refreshed`, `failed` and `cacheVersion`.
+1. enter the Bot ID;
+2. select **Load bot**;
+3. add every exact public origin that may host the widget;
+4. remove wildcard or unsafe entries;
+5. review the contact URL, approved knowledge and public knowledge URLs;
+6. enable only contact navigation or visitor-approved follow-up;
+7. select **Save reviewed configuration**;
+8. select **Refresh approved cache**;
+9. inspect `attempted`, `refreshed`, `failed` and `cacheVersion`.
 
-The current configuration writer stores schema version 4 and discards unsafe legacy fields rather than silently preserving them.
+The current writer stores schema version 4 and discards unsafe legacy fields rather than silently retaining them.
 
-## 8. Model migration posture
+## 8. Model fallback posture
 
 The final runtime uses:
 
@@ -175,32 +154,13 @@ The final runtime uses:
 @cf/meta/llama-3.2-3b-instruct
 ```
 
-when a bot record has:
+when a stored record has no model, a malformed model identifier, or the known-retired `@cf/meta/llama-3-8b-instruct` identifier. Workers AI calls are bounded by a 20-second runtime timeout.
 
-- no model;
-- a malformed model identifier;
-- the known-retired `@cf/meta/llama-3-8b-instruct` identifier.
+The fallback does not rewrite KV. Resave old records through the current admin console so stored configuration truthfully describes runtime behaviour.
 
-This fallback keeps old records operable without trusting malformed configuration. The fallback does not rewrite KV. Resave each bot through the current admin console so its stored model accurately describes runtime behaviour.
+## 9. Knowledge-cache behaviour
 
-The optional helper remains available for deliberate EVAVO bot updates:
-
-```powershell
-cd C:\GitRepos\client-chat-platform\worker
-$env:WORKER_URL="https://client-chat-platform.example.workers.dev"
-$env:ADMIN_TOKEN="<current Worker ADMIN_TOKEN>"
-$env:BOT_ID="evavo"
-$env:MODEL="@cf/meta/llama-3.2-3b-instruct"
-cmd /c "node scripts/update-evavo-model.mjs"
-```
-
-Do not place the token in source files, shell-history screenshots or issue comments.
-
-## 9. Knowledge cache behaviour
-
-Public chat never fetches source pages during a visitor request.
-
-Only authenticated:
+Public chat never fetches source pages during a visitor request. Only authenticated:
 
 ```text
 POST /admin/kb/refresh
@@ -211,19 +171,16 @@ may fetch configured knowledge URLs.
 The refresh boundary:
 
 - accepts public HTTPS only;
-- validates every redirect manually;
-- keeps one timeout across redirects, headers and body streaming;
-- limits response bytes;
-- rejects binary-looking bodies;
+- validates redirects manually;
+- applies one timeout across redirects, headers and streamed body reading;
+- limits bytes and rejects binary-looking bodies;
 - strips HTML to bounded text;
-- stores source URL, final URL, fetch time, source bytes and a verified text digest;
-- uses a 70-byte SHA-256-derived KV key instead of the raw URL.
-
-Command-line refresh example:
+- records source URL, final URL, fetch time, source bytes and a verified digest;
+- uses a 70-byte SHA-256-derived KV key rather than the raw URL.
 
 ```powershell
-$WorkerUrl = "https://client-chat-platform.example.workers.dev"
-$AdminToken = "<current Worker ADMIN_TOKEN>"
+$WorkerUrl = "http://localhost:8787"
+$AdminToken = "<current local ADMIN_TOKEN>"
 $Body = '{"botId":"evavo"}'
 
 curl.exe -i -X POST "$WorkerUrl/admin/kb/refresh" `
@@ -232,9 +189,56 @@ curl.exe -i -X POST "$WorkerUrl/admin/kb/refresh" `
   --data-binary $Body
 ```
 
-A partial refresh is reported honestly. Failed sources are not replaced with invented or stale text by the refresh operation.
+A partial refresh is reported honestly. Failed sources are not replaced with invented text.
 
-## 10. Configure the production administrator credential
+## 10. Verify explicit visitor-approved follow-up
+
+A model `create_lead` action cannot write a record during `/api/chat`. The widget must display the exact visitor-provided email and message excerpt and obtain a separate click on **Share for follow-up**.
+
+`POST /api/leads` then requires:
+
+- an exact approved browser `Origin`;
+- exact boolean `consent: true`;
+- bounded visitor-authored evidence;
+- an email and message that both appear in that evidence;
+- an active, safe bot configuration.
+
+The evidence is verified but not stored. Raw IP addresses and user-agent strings are not stored. Explicit lead records and their index expire after 90 days.
+
+A local command-line contract check can emulate an approved browser origin after that origin has been saved in the bot configuration:
+
+```powershell
+$WorkerUrl = "http://localhost:8787"
+$Origin = "http://localhost:3000"
+$VisitorMessage = "My email is visitor@example.com and I would like follow-up about a website project."
+$LeadBody = @{
+  botId = "evavo"
+  consent = $true
+  evidence = @($VisitorMessage)
+  lead = @{
+    email = "visitor@example.com"
+    message = $VisitorMessage
+    sourcePath = "/contact"
+  }
+} | ConvertTo-Json -Depth 5 -Compress
+
+curl.exe -i -X POST "$WorkerUrl/api/leads" `
+  -H "Origin: $Origin" `
+  -H "Content-Type: application/json" `
+  --data-binary $LeadBody
+```
+
+Expected when the origin is approved:
+
+- HTTP `201`;
+- `consentVersion: visitor_follow_up_consent_v2`;
+- `retentionDays: 90`;
+- `expiresAt` present;
+- no email, message, IP address or user agent echoed in the response.
+
+Omitting `consent`, changing it to a string, changing a field so it no longer appears in `evidence`, or using an unapproved origin must fail closed.
+
+## 11. Configure production Worker variables
 
 Authenticate Wrangler:
 
@@ -244,15 +248,13 @@ cmd /c "npx wrangler login"
 cmd /c "npm run whoami"
 ```
 
-Set or rotate the server-only token:
+Set or rotate the server-only administrator credential:
 
 ```powershell
 cmd /c "npx wrangler secret put ADMIN_TOKEN -c wrangler.jsonc"
 ```
 
-Use a random 32–256 byte value without whitespace.
-
-For a hosted admin console, configure `ADMIN_ALLOWED_ORIGINS` as a comma-separated list of exact origins. It may be stored as a Cloudflare secret even though the origin list is not confidential:
+For a hosted admin console, set the optional comma-separated exact origin list:
 
 ```powershell
 cmd /c "npx wrangler secret put ADMIN_ALLOWED_ORIGINS -c wrangler.jsonc"
@@ -264,11 +266,11 @@ Example prompted value:
 https://ops.example.com,https://admin.example.com
 ```
 
-Do not add production environment values to `wrangler.jsonc` or any tracked file.
+Do not add production values to `wrangler.jsonc` or any tracked file.
 
-## 11. Confirm KV and Workers AI bindings
+## 12. Confirm bindings
 
-`worker/wrangler.jsonc` already declares:
+`worker/wrangler.jsonc` declares:
 
 ```text
 AI
@@ -276,60 +278,43 @@ BOT_CONFIG
 KB_CACHE
 ```
 
-The namespace IDs are deployment bindings, not bearer credentials. Do not recreate or replace the existing production namespaces during a routine source deployment.
+The namespace IDs are binding identifiers, not bearer credentials. Do not recreate or replace the production namespaces during a routine source release.
 
-When intentionally moving the Worker to a different Cloudflare account, create replacement namespaces first, update both IDs deliberately, migrate required configuration records and repeat the full review process before exposing public chat.
-
-## 12. Deploy through the guarded npm lifecycle
-
-From the repository root:
+## 13. Deploy through the guarded npm lifecycle
 
 ```powershell
 cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The root command delegates to the Worker package. Its `predeploy` hook reruns the complete check before Wrangler uploads anything.
+The package `predeploy` hook reruns all four checks, including `npm run check:bundle`, before Wrangler uploads anything.
 
-Do not use direct:
+Direct Wrangler invocation bypasses the npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
 
-```text
-wrangler deploy
-```
-
-for a normal release. Direct Wrangler invocation bypasses the npm `predeploy` gate.
-
-## 13. Verify the deployed runtime
-
-Set the deployed origin:
+## 14. Verify the deployed runtime
 
 ```powershell
 $WorkerUrl = "https://client-chat-platform.example.workers.dev"
-```
-
-### Health
-
-```powershell
 curl.exe -i "$WorkerUrl/health"
 ```
 
 Confirm:
 
 - HTTP `200`;
-- `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v1`;
-- no administrator configuration disclosure;
+- `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v2`;
+- no administrator-configuration disclosure;
 - no raw model or provider information.
 
-### Retired admin-header alias is denied
+Verify the retired alias cannot authenticate:
 
 ```powershell
 curl.exe -i -X POST "$WorkerUrl/admin/list" `
   -H "x-admin-token: invalid-placeholder-value-that-is-not-authoritative"
 ```
 
-Expected: HTTP `401`. The retired header must never authenticate a request.
+Expected: HTTP `401`.
 
-### Exact Bearer administration
+Verify exact Bearer administration:
 
 ```powershell
 $AdminToken = "<current Worker ADMIN_TOKEN>"
@@ -338,33 +323,19 @@ curl.exe -i -X POST "$WorkerUrl/admin/list" `
   -H "Authorization: Bearer $AdminToken"
 ```
 
-Expected: HTTP `200` with a bounded JSON bot-ID list.
+Expected: HTTP `200` with a bounded bot-ID list.
 
-### Unsafe method handling
+Verify unsupported methods:
 
 ```powershell
 curl.exe -i "$WorkerUrl/admin/list"
 curl.exe -i "$WorkerUrl/api/chat"
+curl.exe -i "$WorkerUrl/api/leads"
 ```
 
-Expected: HTTP `405` with the correct `Allow` header.
+Expected: HTTP `405` with the appropriate `Allow` header.
 
-### Public browser chat
-
-Use the actual approved website origin and the current widget. Confirm:
-
-- the panel opens and closes by keyboard;
-- Escape closes the dialog;
-- focus remains inside the open dialog;
-- a bounded user message receives a response;
-- an unapproved origin receives no readable chat response;
-- raw provider output is absent;
-- contact actions navigate only to the reviewed contact path;
-- no bot key appears in page source or network request JSON.
-
-## 14. Embed the current widget
-
-Host `widget/embed.js` on an approved static origin and add:
+## 15. Embed the current widget
 
 ```html
 <script
@@ -378,41 +349,21 @@ Host `widget/embed.js` on an approved static origin and add:
 ></script>
 ```
 
-The browser widget is authorised by the exact page origin stored in the bot configuration. Never add the optional server bot key to public HTML.
+The browser widget is authorised by the exact page origin stored in bot configuration. Never add a bot key to public HTML.
 
-A strict host Content Security Policy may pass its style nonce through:
+A strict host Content Security Policy may pass its response-specific style nonce through `data-style-nonce`. Do not hard-code or reuse a nonce.
 
-```html
-<script
-  nonce="<server-generated-nonce>"
-  data-style-nonce="<server-generated-nonce>"
-  ...
-></script>
-```
+## 16. Operational limitations and incidents
 
-The nonce must be generated by the host application for each response. Do not hard-code it.
-
-## 15. Operational limitations
-
-Workers KV counters and indexes are eventually consistent. Current rate limits, daily budgets and lead indexes reduce cost and abuse but are not strict transactional quotas. Concurrent requests can temporarily exceed a configured counter, and concurrent index writes can race.
-
-Use a Durable Object or another transactional coordinator before treating these values as billing, compliance or high-assurance security controls.
-
-## 16. Incident handling
+Workers KV is eventually consistent. Current rate limits, daily budgets and lead indexes reduce cost and abuse but are not strict transactional quotas. Concurrent requests can temporarily exceed a counter, and concurrent index writes can race. Use a Durable Object or another transactional coordinator before treating these values as billing, compliance or high-assurance security controls.
 
 When a credential may have entered source control:
 
 1. revoke or rotate it immediately;
 2. do not rely on `.gitignore` as remediation;
 3. inspect Git history and build logs;
-4. remove the tracked material with an intentional history-remediation plan;
+4. remove tracked material with an intentional history-remediation plan;
 5. rerun `npm run check`;
 6. verify the deployed Worker uses the rotated value.
 
-When a bot configuration is unsafe:
-
-1. do not weaken the runtime to make it load;
-2. load it through authenticated administration;
-3. resave it through the reviewed schema;
-4. refresh approved knowledge;
-5. verify public chat from every exact production origin.
+When a bot configuration is unsafe, do not weaken the runtime to make it load. Resave it through the reviewed schema, refresh approved knowledge, and verify chat and visitor consent from every exact production origin.
