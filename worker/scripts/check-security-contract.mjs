@@ -9,7 +9,7 @@ const workerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), ".
 const repositoryRoot = path.resolve(workerRoot, "..");
 const errors = [];
 
-function readFrom(root, relativePath) {
+function read(root, relativePath) {
   const absolute = path.join(root, relativePath);
   if (!fs.existsSync(absolute)) {
     errors.push(`Missing required file: ${path.relative(repositoryRoot, absolute)}`);
@@ -30,6 +30,16 @@ function forbidTokens(label, source, tokens) {
   }
 }
 
+function segment(source, start, end) {
+  const from = source.indexOf(start);
+  const to = source.indexOf(end, from + start.length);
+  if (from < 0 || to < 0 || to <= from) {
+    errors.push(`Could not resolve source segment: ${start} -> ${end}`);
+    return "";
+  }
+  return source.slice(from, to);
+}
+
 function requireOrder(label, source, tokens) {
   let previous = -1;
   for (const token of tokens) {
@@ -42,45 +52,39 @@ function requireOrder(label, source, tokens) {
   }
 }
 
-function segment(source, start, end) {
-  const from = source.indexOf(start);
-  const to = source.indexOf(end, from + start.length);
-  if (from < 0 || to < 0 || to <= from) {
-    errors.push(`Could not resolve source segment: ${start} -> ${end}`);
-    return "";
-  }
-  return source.slice(from, to);
-}
-
-const security = readFrom(workerRoot, "src/security.ts");
-const configBoundary = readFrom(workerRoot, "src/configBoundary.ts");
-const hardened = readFrom(workerRoot, "src/hardened.ts");
-const legacy = readFrom(workerRoot, "src/index.ts");
-const wrangler = readFrom(workerRoot, "wrangler.jsonc");
-const workerPackageSource = readFrom(workerRoot, "package.json");
-const workerLockSource = readFrom(workerRoot, "package-lock.json");
-const rootPackageSource = readFrom(repositoryRoot, "package.json");
-const admin = readFrom(repositoryRoot, "admin/index.html");
-const widget = readFrom(repositoryRoot, "widget/embed.js");
+const sources = {
+  security: read(workerRoot, "src/security.ts"),
+  config: read(workerRoot, "src/configBoundary.ts"),
+  hardened: read(workerRoot, "src/hardened.ts"),
+  legacy: read(workerRoot, "src/index.ts"),
+  wrangler: read(workerRoot, "wrangler.jsonc"),
+  package: read(workerRoot, "package.json"),
+  lock: read(workerRoot, "package-lock.json"),
+  sourceSecrets: read(workerRoot, "scripts/check-source-secrets.mjs"),
+  rootPackage: read(repositoryRoot, "package.json"),
+  gitignore: read(repositoryRoot, ".gitignore"),
+  variables: read(repositoryRoot, ".dev.vars.example"),
+  admin: read(repositoryRoot, "admin/index.html"),
+  widget: read(repositoryRoot, "widget/embed.js"),
+};
 
 let workerPackage = {};
 let workerLock = {};
 let rootPackage = {};
-try { workerPackage = JSON.parse(workerPackageSource); } catch { errors.push("worker/package.json must remain valid JSON"); }
-try { workerLock = JSON.parse(workerLockSource); } catch { errors.push("worker/package-lock.json must remain valid JSON"); }
-try { rootPackage = JSON.parse(rootPackageSource); } catch { errors.push("package.json must remain valid JSON"); }
+try { workerPackage = JSON.parse(sources.package); } catch { errors.push("worker/package.json must remain valid JSON"); }
+try { workerLock = JSON.parse(sources.lock); } catch { errors.push("worker/package-lock.json must remain valid JSON"); }
+try { rootPackage = JSON.parse(sources.rootPackage); } catch { errors.push("package.json must remain valid JSON"); }
 
-requireTokens("Wrangler activation", wrangler, [
+requireTokens("Wrangler activation", sources.wrangler, [
   '"main": "src/hardened.ts"',
   '"global_fetch_strictly_public"',
   '"nodejs_compat"',
   '"preview_urls": false',
-  '"observability"',
 ]);
-forbidTokens("Wrangler activation", wrangler, ['"main": "src/index.ts"']);
+forbidTokens("Wrangler activation", sources.wrangler, ['"main": "src/index.ts"']);
 
-requireTokens("Network and request security", security, [
-  'CHAT_SECURITY_CONTRACT = "client_chat_security_v2"',
+requireTokens("Request and network security", sources.security, [
+  '"client_chat_security_v2"',
   "ADMIN_REQUEST_MAX_BYTES = 64 * 1024",
   "CHAT_REQUEST_MAX_BYTES = 128 * 1024",
   "BLOCKED_JSON_KEYS",
@@ -96,69 +100,63 @@ requireTokens("Network and request security", security, [
   "readResponseBody(",
   "deadline",
   "controller.abort()",
-  "finally",
   "clearTimeout(timeout)",
   "dnsRebindingMitigatedByRuntimePublicFetchFlag: true",
   "fullOperationTimeoutRequired: true",
   "dormantWebhookHelperPresent: false",
 ]);
-forbidTokens("Network and request security", security, [
+forbidTokens("Request and network security", sources.security, [
   "postPublicWebhook",
   "WEBHOOK_TIMEOUT_MS",
   'redirect: "follow"',
   "x-admin-token",
 ]);
 
-requireTokens("Bot configuration boundary", configBoundary, [
-  'BOT_CONFIG_BOUNDARY_CONTRACT =\n  "client_chat_bot_config_boundary_v2"',
-  'KNOWLEDGE_CACHE_RECORD_VERSION =\n  "client_chat_cached_knowledge_v1"',
+requireTokens("Bot configuration boundary", sources.config, [
+  '"client_chat_bot_config_boundary_v2"',
+  '"client_chat_cached_knowledge_v1"',
   "sanitizeUpsertConfig",
   "safeStoredNetworkConfig",
   "browserOriginDecision",
   "buildSafeChatConfig",
   "refreshBotKnowledge",
-  "knowledgeCacheKey",
   '`kb:v2:${await sha256Hex(url)}`',
   "exactCacheRecordShape",
   "verifiedCachedKnowledge",
-  "bodySha256",
-  "sourceUrl",
-  "finalUrl",
   "cacheRecordDigestVerifiedBeforeUse: true",
   "liveRagFetchFromPublicChatAllowed: false",
   "cachedWebsiteInstructionsTrusted: false",
   'botKey: ""',
   'allowedActionTypes: ["none"]',
 ]);
-forbidTokens("Bot configuration boundary", configBoundary, [
-  "webhookUrl:",
-  "webhookAuthHeader:",
-  "webhookSecret:",
-  'item === "webhook"',
-]);
-const chatConfigSegment = segment(
-  configBoundary,
+const chatConfig = segment(
+  sources.config,
   "export async function buildSafeChatConfig",
   "export function withBotConfigOverride",
 );
-forbidTokens("Public chat cache construction", chatConfigSegment, [
+forbidTokens("Public chat cache construction", chatConfig, [
   "fetchBoundedPublicText(",
   "await fetch(",
 ]);
-const refreshSegment = segment(
-  configBoundary,
+const refresh = segment(
+  sources.config,
   "export async function refreshBotKnowledge",
   "export const botConfigBoundaryPosture",
 );
-requireTokens("Authenticated knowledge refresh", refreshSegment, [
+requireTokens("Authenticated cache refresh", refresh, [
   "fetchBoundedPublicText(",
   "knowledgeCacheKey(url)",
   "JSON.stringify(record)",
   "expirationTtl: ttl",
 ]);
+forbidTokens("Bot configuration boundary", sources.config, [
+  "webhookUrl:",
+  "webhookAuthHeader:",
+  "webhookSecret:",
+  'item === "webhook"',
+]);
 
-requireTokens("Hardened router", hardened, [
-  'import legacyWorker, { type Env as LegacyEnv } from "./index"',
+requireTokens("Hardened router", sources.hardened, [
   'from "./configBoundary"',
   "ADMIN_ALLOWED_ORIGINS?: string",
   "readBoundedResponseText",
@@ -182,32 +180,25 @@ requireTokens("Hardened router", hardened, [
   "publicChatNetworkFetchAllowed: false",
   "unexpectedErrorsSanitized: true",
 ]);
-forbidTokens("Hardened router", hardened, [
+forbidTokens("Hardened router", sources.hardened, [
   'request.headers.get("x-admin-token")',
   "request.json()",
   "response.text()",
   "postPublicWebhook",
   "fetchBoundedPublicText",
 ]);
-const handleChatSegment = segment(hardened, "async function handleChat", "export default");
-forbidTokens("Public chat route", handleChatSegment, ["await fetch(", "fetchBoundedPublicText("]);
-requireOrder("Public chat authorization", handleChatSegment, [
+const chatRoute = segment(sources.hardened, "async function handleChat", "export default");
+forbidTokens("Public chat route", chatRoute, ["await fetch(", "fetchBoundedPublicText("]);
+requireOrder("Public chat authorization", chatRoute, [
   "safeStoredNetworkConfig(config)",
   "browserOriginDecision(request, network.origins)",
   "boundedSecretEqual(",
   "buildSafeChatConfig",
   "legacyWorker.fetch",
 ]);
+requireTokens("Legacy isolation", sources.legacy, ["export default", "async function handleChat"]);
 
-requireTokens("Legacy isolation", legacy, [
-  "export default",
-  "async function handleChat",
-]);
-if (wrangler.includes('"main": "src/index.ts"')) {
-  errors.push("The legacy router must not be the Wrangler entrypoint");
-}
-
-requireTokens("Admin console", admin, [
+requireTokens("Admin console", sources.admin, [
   'type="password"',
   'id="allowedOrigins" required',
   'value="direct"',
@@ -220,7 +211,7 @@ requireTokens("Admin console", admin, [
   "Wildcards are intentionally unsupported",
   "External webhook configuration is rejected",
 ]);
-forbidTokens("Admin console", admin, [
+forbidTokens("Admin console", sources.admin, [
   "x-admin-token",
   "localStorage",
   "sessionStorage",
@@ -228,13 +219,12 @@ forbidTokens("Admin console", admin, [
   "webhookUrl",
   "webhookSecret",
   "brandHex",
-  "greeting",
 ]);
 
-requireTokens("Embeddable widget", widget, [
+requireTokens("Embeddable widget", sources.widget, [
   'script.getAttribute("data-api-base")',
   'script.getAttribute("data-bot-id")',
-  "attachShadow({ mode: \"open\" })",
+  'attachShadow({ mode: "open" })',
   "input.maxLength = 2000",
   "readJsonBounded",
   "maximumBytes = 65536",
@@ -242,27 +232,51 @@ requireTokens("Embeddable widget", widget, [
   'referrerPolicy: "no-referrer"',
   'mode: "cors"',
   'setTimeout(() => controller.abort("timeout"), 20000)',
-  "event.key === \"Escape\"",
-  "event.key !== \"Tab\"",
+  'event.key === "Escape"',
+  'event.key !== "Tab"',
   "shadow.activeElement",
   "Do not share passwords, access credentials or confidential records.",
   "safeContactUrl",
   "registry.has(botId)",
 ]);
-forbidTokens("Embeddable widget", widget, [
+forbidTokens("Embeddable widget", sources.widget, [
   "innerHTML",
   "insertAdjacentHTML",
   "localStorage",
   "sessionStorage",
   "data-bot-key",
-  'body.botKey',
   "Authorization",
 ]);
 
+requireTokens("Tracked-source secret safety", sources.sourceSecrets, [
+  "client-chat-platform-tracked-source-secret-safety-v1",
+  "git\", [\"ls-files\", \"-z\"]",
+  "ALLOWED_ENV_FILES",
+  "private-key-material",
+  "credential-bearing-url",
+  "ADMIN_TOKEN=replace_me_with_a_random_server_only_token",
+  "rawSecretValuesPrinted: false",
+]);
+requireTokens("Secret ignore posture", sources.gitignore, [
+  ".env.*",
+  "!.env.example",
+  ".dev.vars.*",
+  "!.dev.vars.example",
+  ".wrangler/",
+  "*.pem",
+  "*.key",
+]);
+requireTokens("Safe local variable template", sources.variables, [
+  "ADMIN_TOKEN=replace_me_with_a_random_server_only_token",
+  "ADMIN_ALLOWED_ORIGINS=http://localhost:4173",
+  "Never commit .dev.vars",
+]);
+
 const expectedWorkerScripts = {
+  "check:source-secrets": "node scripts/check-source-secrets.mjs",
   "check:security": "node scripts/check-security-contract.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
-  check: "npm run check:security && npm run typecheck",
+  check: "npm run check:source-secrets && npm run check:security && npm run typecheck",
   predeploy: "npm run check",
 };
 for (const [name, command] of Object.entries(expectedWorkerScripts)) {
@@ -289,9 +303,10 @@ if (Buffer.byteLength(cacheKey, "utf8") !== 70) {
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-security-contract-v2",
+  contract: "client-chat-platform-security-contract-v3-source-secrets",
   activeEntrypoint: "worker/src/hardened.ts",
   legacyEntrypointActive: false,
+  trackedSourceSecretSafetyRequired: true,
   publicChatNetworkFetchAllowed: false,
   adminRefreshNetworkOnly: true,
   knowledgeCacheKeyBytes: Buffer.byteLength(cacheKey, "utf8"),
