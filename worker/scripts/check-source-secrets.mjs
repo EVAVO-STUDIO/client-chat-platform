@@ -206,7 +206,9 @@ const packageJson = fs.existsSync(packagePath)
   : {};
 const expectedScripts = {
   "check:source-secrets": "node scripts/check-source-secrets.mjs",
-  "check:config-secrets": "node scripts/check-admin-config-secret-boundary.mjs",
+  "check:config-secrets:source": "node scripts/check-admin-config-secret-boundary.mjs",
+  "check:config-secrets:behavior": "node scripts/check-runtime-storage-behaviour.mjs",
+  "check:config-secrets": "npm run check:config-secrets:source && npm run check:config-secrets:behavior",
   "precheck:security": "npm run check:config-secrets",
   "check:security": "node scripts/check-security-contract.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
@@ -231,17 +233,39 @@ const focusedConfig = fs.existsSync(focusedConfigPath)
   ? fs.readFileSync(focusedConfigPath, "utf8")
   : "";
 for (const token of [
-  'contract: "client-chat-admin-config-secret-safety-v5-mutation-receipt"',
+  'contract: "client-chat-admin-config-secret-safety-v6-behavioral"',
   "rawBotKeysReturned: false",
   "upsertStatusUsesCommittedMutationReceipt: true",
   "postWriteKvReadRequiredForUpsertStatus: false",
   "unknownStatusDisplayedAsNotConfigured: false",
   "botKeyStatusLocallyRedacted: false",
+  "behavioralVerificationRequired: true",
   "retiredWebhookCredentialsReturned: false",
   "rawClientAddressesUsedAsKvKeys: false",
 ]) {
   if (!focusedConfig.includes(token)) {
     errors.push(`config-secret safety contract must require: ${token}`);
+  }
+}
+
+const behaviorPath = path.join(
+  workerRoot,
+  "scripts",
+  "check-runtime-storage-behaviour.mjs",
+);
+const behavior = fs.existsSync(behaviorPath)
+  ? fs.readFileSync(behaviorPath, "utf8")
+  : "";
+for (const token of [
+  'contract: "client-chat-runtime-storage-behaviour-v1"',
+  "blankBotKeyPreserved: true",
+  "explicitBotKeyClearVerified: true",
+  "committedMutationReceiptVerified: true",
+  "rawBotKeyProjected: false",
+  "rawClientAddressUsedAsKvKey: false",
+]) {
+  if (!behavior.includes(token)) {
+    errors.push(`runtime storage behavior must require: ${token}`);
   }
 }
 
@@ -303,7 +327,7 @@ for (const token of [
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-tracked-source-secret-safety-v4-mutation-receipt",
+  contract: "client-chat-platform-tracked-source-secret-safety-v5-behavioral-config",
   trackedFilesInspected: files.length,
   maximumScannedFileBytes: MAX_SCANNED_FILE_BYTES,
   trackedEnvironmentFilesAllowed: [...ALLOWED_ENV_FILES],
@@ -312,7 +336,8 @@ console.log(JSON.stringify({
   liveProviderTokensAllowed: false,
   credentialBearingUrlsAllowed: false,
   rawSecretValuesPrinted: false,
-  configSecretCheckRequired: true,
+  configSecretSourceCheckRequired: true,
+  configSecretBehaviorCheckRequired: true,
   configSecretPrehookRequired: true,
   runtimeStorageBoundaryRequired: true,
   committedMutationReceiptRequired: true,
