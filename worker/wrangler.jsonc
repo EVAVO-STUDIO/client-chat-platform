@@ -9,7 +9,7 @@
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "client-chat-platform",
-  "main": "src/hardened.ts",
+  "main": "src/runtime.ts",
   "compatibility_date": "2026-02-17",
   "compatibility_flags": [
     "nodejs_compat",
