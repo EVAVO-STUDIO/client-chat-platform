@@ -121,7 +121,13 @@
     .assistant .bubble{background:var(--evavo-chat-panel);color:var(--evavo-chat-text);border-bottom-left-radius:5px}
     .meta{min-height:25px;padding:0 14px 9px;color:var(--evavo-chat-muted);font-size:11px;line-height:1.45}
     .meta.error{color:#ff9aac}
-    .action{display:inline-flex;align-items:center;min-height:38px;border:1px solid var(--evavo-chat-line);border-radius:999px;background:#171f2b;color:var(--evavo-chat-text);padding:8px 12px;font-size:12px;font-weight:800;text-decoration:none;cursor:pointer}
+    .action{display:inline-flex;align-items:center;justify-content:center;min-height:38px;border:1px solid var(--evavo-chat-line);border-radius:999px;background:#171f2b;color:var(--evavo-chat-text);padding:8px 12px;font-size:12px;font-weight:800;text-decoration:none;cursor:pointer}
+    .action.primary{border-color:var(--evavo-chat-accent);background:var(--evavo-chat-accent);color:#08090c}
+    .action:disabled{cursor:not-allowed;opacity:.55}
+    .consent{display:grid;gap:8px;border:1px solid var(--evavo-chat-line);border-left:3px solid var(--evavo-chat-accent);border-radius:12px;background:#101722;padding:10px 11px;color:var(--evavo-chat-text)}
+    .consent-copy{margin:0;color:#cdd6e2;font-size:11px;line-height:1.5}
+    .consent-email{color:#fff;font-weight:800;overflow-wrap:anywhere}
+    .consent-actions{display:flex;flex-wrap:wrap;gap:7px;margin-top:2px}
     .composer{border-top:1px solid var(--evavo-chat-line);background:var(--evavo-chat-panel);padding:11px}
     .input-row{display:flex;align-items:flex-end;gap:8px}
     .input{flex:1;min-height:42px;max-height:126px;resize:none;border:1px solid var(--evavo-chat-line);border-radius:12px;background:#0c1119;color:var(--evavo-chat-text);padding:10px 11px;outline:none;font-size:13px;line-height:1.4}
@@ -331,6 +337,103 @@
     meta.classList.remove("error");
   }
 
+  function leadText(value, maximum) {
+    if (typeof value !== "string") return "";
+    return value.trim().slice(0, maximum);
+  }
+
+  function normalizedLeadPayload(value) {
+    if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+    const email = leadText(value.email || value.contactEmail, 320).toLowerCase();
+    const message = leadText(value.message || value.summary || value.details, 2000);
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email) || message.length < 10) {
+      return null;
+    }
+    const phone = leadText(value.phone, 40);
+    return {
+      name: leadText(value.name, 120) || undefined,
+      email,
+      phone: phone && phone.replace(/\D/g, "").length >= 6 ? phone : undefined,
+      company: leadText(value.company, 160) || undefined,
+      message,
+      sourcePath: window.location.pathname.slice(0, 512) || "/",
+    };
+  }
+
+  async function submitLead(lead, button, cancel) {
+    if (busy || navigator.onLine === false) return;
+    busy = true;
+    button.disabled = true;
+    cancel.disabled = true;
+    button.textContent = "Sharing…";
+    updateControls();
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort("timeout"), 15000);
+    try {
+      const response = await fetch(`${base}/api/leads`, {
+        method: "POST",
+        mode: "cors",
+        credentials: "omit",
+        referrerPolicy: "no-referrer",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ botId, consent: true, lead }),
+        signal: controller.signal,
+      });
+      const data = await readJsonBounded(response, 32768).catch(() => ({}));
+      if (!response.ok || data.ok !== true) {
+        throw Object.assign(new Error("lead_request_failed"), { status: response.status });
+      }
+      setMeta("Your enquiry details were saved for follow-up.");
+    } catch (error) {
+      if (controller.signal.aborted) {
+        setMeta("The follow-up request took too long. Nothing was confirmed.", true);
+      } else if (Number(error && error.status) === 429) {
+        setMeta("Too many follow-up requests were attempted. Try again later.", true);
+      } else {
+        setMeta("The follow-up request was not saved. Use the contact page instead.", true);
+      }
+    } finally {
+      clearTimeout(timeout);
+      busy = false;
+      updateControls();
+      input.focus();
+    }
+  }
+
+  function showLeadConsent(action) {
+    const lead = normalizedLeadPayload(action && action.payload);
+    if (!lead) {
+      showContactAction(action);
+      return;
+    }
+    const box = document.createElement("div");
+    box.className = "consent";
+    const copy = document.createElement("p");
+    copy.className = "consent-copy";
+    copy.append("Share the email and message you provided for follow-up at ");
+    const email = document.createElement("span");
+    email.className = "consent-email";
+    email.textContent = lead.email;
+    copy.append(email, "? Nothing is saved until you choose Share.");
+    const actions = document.createElement("div");
+    actions.className = "consent-actions";
+    const confirm = document.createElement("button");
+    confirm.className = "action primary";
+    confirm.type = "button";
+    confirm.textContent = "Share for follow-up";
+    const cancel = document.createElement("button");
+    cancel.className = "action";
+    cancel.type = "button";
+    cancel.textContent = "Not now";
+    confirm.addEventListener("click", () => void submitLead(lead, confirm, cancel));
+    cancel.addEventListener("click", () => setMeta("Follow-up details were not shared."));
+    actions.append(confirm, cancel);
+    box.append(copy, actions);
+    meta.replaceChildren(box);
+    meta.classList.remove("error");
+    confirm.focus();
+  }
+
   function publicErrorMessage(status) {
     if (status === 429) return "Chat is busy right now. Try again shortly.";
     if (status === 403) return "Chat is not enabled for this website origin.";
@@ -378,7 +481,7 @@
       if (data.action && data.action.type === "open_contact") {
         showContactAction(data.action);
       } else if (data.action && data.action.type === "create_lead") {
-        setMeta("Your supplied enquiry details were saved for follow-up.");
+        showLeadConsent(data.action);
       }
     } catch (error) {
       if (controller.signal.aborted) {
@@ -391,7 +494,7 @@
       if (activeController === controller) activeController = null;
       busy = false;
       updateControls();
-      input.focus();
+      if (!meta.querySelector(".consent")) input.focus();
     }
   }
 
