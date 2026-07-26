@@ -1,13 +1,14 @@
 import { sha256Hex } from "./security";
 
 export const RUNTIME_STORAGE_BOUNDARY_CONTRACT =
-  "client_chat_runtime_storage_boundary_v2" as const;
+  "client_chat_runtime_storage_boundary_v3" as const;
 
 export const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
 
 const BOT_CONFIG_PREFIX = "cfg:";
 const BOT_CONFIG_INDEX_KEY = "cfg:index";
 const BOT_CONFIG_KEY_PATTERN = /^cfg:[A-Za-z0-9_-]{1,64}$/;
+const BOT_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
 const LEGACY_RATE_LIMIT_PREFIX = "rl:";
 const HASHED_RATE_LIMIT_PREFIX = "rl:v2:";
 const MAX_ADMIN_RESPONSE_BYTES = 512 * 1024;
@@ -176,11 +177,32 @@ export function withHashedLegacyRateLimitKeys(binding: KVNamespace) {
   }) as KVNamespace;
 }
 
-function projectAdminConfig(value: unknown): JsonObject | null {
+function botKeyProjectionStatus(
+  responseConfig: JsonObject,
+  storedConfig: JsonObject | null,
+  pathname: string,
+): boolean | null {
+  if (responseConfig.botKey === BOT_KEY_CLEAR_SENTINEL) return false;
+  if (botKeyAllowed(responseConfig.botKey)) return true;
+  if (storedConfig) return botKeyAllowed(storedConfig.botKey);
+  return pathname === "/admin/get" ? false : null;
+}
+
+function projectAdminConfig(
+  value: unknown,
+  storedConfig: JsonObject | null,
+  pathname: string,
+): JsonObject | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const source = value as JsonObject;
   const projected = scrubRetiredConfigSecrets(source);
-  projected.botKeyConfigured = botKeyAllowed(source.botKey);
+  const configured = botKeyProjectionStatus(source, storedConfig, pathname);
+  projected.botKeyConfigured = configured;
+  projected.botKeyStatus = configured === true
+    ? "configured"
+    : configured === false
+      ? "not_configured"
+      : "unknown";
   delete projected.botKey;
   return projected;
 }
@@ -247,9 +269,28 @@ function replacementResponse(
   return new Response(JSON.stringify(payload), { status, headers });
 }
 
+async function storedConfigForProjection(
+  binding: KVNamespace | undefined,
+  value: unknown,
+) {
+  if (!binding || !value || typeof value !== "object" || Array.isArray(value)) {
+    return null;
+  }
+  const botId = typeof (value as JsonObject).botId === "string"
+    ? String((value as JsonObject).botId).trim()
+    : "";
+  if (!BOT_ID_PATTERN.test(botId)) return null;
+  try {
+    return parseJsonObject(await binding.get(`${BOT_CONFIG_PREFIX}${botId}`));
+  } catch {
+    return null;
+  }
+}
+
 export async function redactAdminConfigResponse(
   response: Response,
   pathname: string,
+  binding?: KVNamespace,
 ) {
   if (!CONFIG_RESPONSE_PATHS.has(pathname)) return response;
   const contentType = String(
@@ -292,7 +333,14 @@ export async function redactAdminConfigResponse(
   }
 
   if (payload.cfg !== undefined) {
-    const projected = projectAdminConfig(payload.cfg);
+    const storedConfig = pathname === "/admin/upsert"
+      ? await storedConfigForProjection(binding, payload.cfg)
+      : null;
+    const projected = projectAdminConfig(
+      payload.cfg,
+      storedConfig,
+      pathname,
+    );
     if (!projected) {
       return replacementResponse(response, 502, {
         ok: false,
@@ -312,6 +360,8 @@ export const runtimeStorageBoundaryPosture = Object.freeze({
   rawBotKeyReturnedByAdminConfigRoutes: false,
   blankBotKeyUpdateClearsExistingKey: false,
   explicitBotKeyClearSentinelRequired: true,
+  upsertBotKeyStatusUsesStoredRecordWhenAvailable: true,
+  unknownBotKeyStatusAllowedWhenStoredReadUnavailable: true,
   retiredWebhookCredentialsReturned: false,
   retiredWebhookCredentialsPersistedOnUpsert: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
