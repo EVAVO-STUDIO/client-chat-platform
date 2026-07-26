@@ -1,13 +1,20 @@
 /**
  * Cloudflare Wrangler config (JSONC)
  * Docs: https://developers.cloudflare.com/workers/wrangler/configuration/
+ *
+ * ADMIN_TOKEN is a Wrangler secret.
+ * ADMIN_ALLOWED_ORIGINS is an optional comma-separated, non-secret variable for
+ * hosted admin consoles. Localhost and 127.0.0.1 are accepted for development.
  */
 {
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "client-chat-platform",
-  "main": "src/index.ts",
+  "main": "src/hardened.ts",
   "compatibility_date": "2026-02-17",
-  "compatibility_flags": ["nodejs_compat"],
+  "compatibility_flags": [
+    "nodejs_compat",
+    "global_fetch_strictly_public"
+  ],
   "workers_dev": true,
   "preview_urls": false,
 
@@ -22,12 +29,7 @@
     },
     {
       "binding": "KB_CACHE",
-      // Remote KV for production + preview KV for local dev/preview.
-      // You already created the prod namespace and got this ID:
       "id": "f4dc6f06fb4f4334a1f574c631d5c834",
-
-      // IMPORTANT: create the preview namespace and paste its id here:
-      //   npx wrangler kv namespace create "KB_CACHE" --preview
       "preview_id": "9cbcf7921ec14f1597fda7ae366e2677"
     }
   ],
