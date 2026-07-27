@@ -1,0 +1,55 @@
+name: Stage keyed privacy boundary
+
+on:
+  push:
+    branches:
+      - work/privacy-hmac-boundary-20260727
+    paths:
+      - ".github/workflows/stage-privacy-hmac-boundary.yml"
+      - "worker/scripts/stage-privacy-hmac-boundary.mjs"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: stage-client-chat-keyed-privacy
+  cancel-in-progress: false
+
+jobs:
+  stage:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    defaults:
+      run:
+        working-directory: worker
+    steps:
+      - name: Checkout staging branch
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: work/privacy-hmac-boundary-20260727
+          persist-credentials: true
+
+      - name: Set up Node.js 24
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+
+      - name: Build keyed privacy boundary
+        run: node scripts/stage-privacy-hmac-boundary.mjs
+
+      - name: Commit staged privacy changes
+        working-directory: .
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No keyed privacy changes were required."
+            exit 0
+          fi
+          git commit -m "Stage keyed privacy rate-limit boundary"
+          git push origin HEAD:work/privacy-hmac-boundary-20260727
