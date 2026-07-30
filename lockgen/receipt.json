@@ -1,0 +1,15 @@
+{
+  "schemaVersion": "1.0",
+  "purpose": "Defectra complete shared pnpm workspace lock generation",
+  "sourceCommit": "c2337ea427276783eea43257dc748e0ef58f50b4",
+  "sourceRootPackageBlob": "70a0333b6f620533c88519c8486fa575a99ac9a9",
+  "sourceApiPackageBlob": "184df1ba9979e9438853b1489d1fe4a6c175d7b6",
+  "node": "v22.23.1",
+  "pnpm": "10.20.0",
+  "lockSha256": "17a09636f3b47df425e9f089790603885e97ec9749d9232caa96c6330a68985d",
+  "rootImporterPresent": true,
+  "apiImporterPresent": true,
+  "frozenLockfileVerification": true,
+  "sourceCodeCopied": false,
+  "credentialsCopied": false
+}
