@@ -11,5 +11,9 @@
   "apiImporterPresent": true,
   "frozenLockfileVerification": true,
   "sourceCodeCopied": false,
-  "credentialsCopied": false
+  "credentialsCopied": false,
+  "runId": "30542454573",
+  "runAttempt": "1",
+  "workflowSha": "6c6824af0e241aa21e6650a7be73c84286ac9fb9",
+  "artifactName": "defectra-pnpm-lock-6c6824af0e241aa21e6650a7be73c84286ac9fb9"
 }
