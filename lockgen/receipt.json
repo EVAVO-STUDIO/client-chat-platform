@@ -1,19 +1,22 @@
 {
-  "schemaVersion": "1.0",
+  "schemaVersion": "1.1",
   "purpose": "Defectra complete shared pnpm workspace lock generation",
   "sourceCommit": "c2337ea427276783eea43257dc748e0ef58f50b4",
-  "sourceRootPackageBlob": "70a0333b6f620533c88519c8486fa575a99ac9a9",
-  "sourceApiPackageBlob": "184df1ba9979e9438853b1489d1fe4a6c175d7b6",
+  "dependencyFingerprintSha256": "dee0fc5b1d1be2e921f5894761aa95a2eff4ebe88556b422483f1c2bfa2b7581",
+  "workspaceConfigSha256": "5ac4bc6bf46c6d254ea10f2fa1d98cbf81f52ed13b9ca5aa88f2d36dfb32330d",
+  "npmrcSha256": "3006cdceb09d577fd3ec78198b05117a2b3a311c4c00b37af52d7453cd9b51e7",
   "node": "v22.23.1",
   "pnpm": "10.20.0",
   "lockSha256": "17a09636f3b47df425e9f089790603885e97ec9749d9232caa96c6330a68985d",
   "rootImporterPresent": true,
   "apiImporterPresent": true,
   "frozenLockfileVerification": true,
+  "frozenInstallVerification": true,
+  "scriptsExecuted": false,
   "sourceCodeCopied": false,
   "credentialsCopied": false,
-  "runId": "30542454573",
+  "runId": "30544421598",
   "runAttempt": "1",
-  "workflowSha": "6c6824af0e241aa21e6650a7be73c84286ac9fb9",
-  "artifactName": "defectra-pnpm-lock-6c6824af0e241aa21e6650a7be73c84286ac9fb9"
+  "workflowSha": "3a9a5e1f6c27a110d97007b809bfdbe5e1bd060f",
+  "artifactName": "defectra-pnpm-lock-3a9a5e1f6c27a110d97007b809bfdbe5e1bd060f"
 }
