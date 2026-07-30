@@ -198,7 +198,11 @@ jobs:
             apiImporterPresent: true,
             frozenLockfileVerification: true,
             sourceCodeCopied: false,
-            credentialsCopied: false
+            credentialsCopied: false,
+            runId: process.env.GITHUB_RUN_ID,
+            runAttempt: process.env.GITHUB_RUN_ATTEMPT,
+            workflowSha: process.env.GITHUB_SHA,
+            artifactName: `defectra-pnpm-lock-${process.env.GITHUB_SHA}`
           };
           fs.writeFileSync('receipt.json', `${JSON.stringify(receipt, null, 2)}\n`, 'utf8');
           NODE
