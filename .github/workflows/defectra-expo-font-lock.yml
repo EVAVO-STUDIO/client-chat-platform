@@ -1,0 +1,305 @@
+name: Generate Bounded Defectra Expo Font Lock
+
+on:
+  push:
+    branches:
+      - work/defectra-expo-font-lock-20260801
+    paths:
+      - .github/workflows/defectra-expo-font-lock.yml
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: defectra-expo-font-lock-20260801
+  cancel-in-progress: true
+
+env:
+  CI: "1"
+  ISSUE_NUMBER: "2"
+  PNPM_VERSION: "10.20.0"
+  SOURCE_LOCK_BYTES: "536206"
+  SOURCE_LOCK_SHA256: "17a09636f3b47df425e9f089790603885e97ec9749d9232caa96c6330a68985d"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  generate:
+    name: Regenerate and verify one bounded lock change
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out exact helper commit
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          clean: true
+          persist-credentials: false
+
+      - name: Publish start evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "## Defectra Expo font lock generation started
+
+          - Helper commit: \`${GITHUB_SHA}\`
+          - Run ID: \`${GITHUB_RUN_ID}\`
+          - Source lock commit: \`7f3dd0d11b68e2047ce1bcc3b27ca4f3b89a2220\`
+          - Source lock SHA-256: \`${SOURCE_LOCK_SHA256}\`
+          - Defectra source copied: **false**
+          - Credentials copied: **false**
+          - Production deployment performed: **false**"
+
+      - name: Verify immutable source lock
+        run: |
+          set -euo pipefail
+          test -s pnpm-lock.yaml
+          test "$(wc -c < pnpm-lock.yaml | tr -d ' ')" = "${SOURCE_LOCK_BYTES}"
+          test "$(sha256sum pnpm-lock.yaml | cut -d' ' -f1)" = "${SOURCE_LOCK_SHA256}"
+          cp pnpm-lock.yaml pnpm-lock.before.yaml
+
+      - name: Use Node.js 22
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 22.x
+
+      - name: Activate exact pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare "pnpm@${PNPM_VERSION}" --activate
+          test "$(pnpm --version)" = "${PNPM_VERSION}"
+
+      - name: Reconstruct dependency-only workspace manifests
+        run: |
+          set -euo pipefail
+          mkdir -p api repair-evidence
+          cat > .npmrc <<'EOF'
+          frozen-lockfile=true
+          shared-workspace-lockfile=true
+          link-workspace-packages=true
+          EOF
+          cat > pnpm-workspace.yaml <<'EOF'
+          packages:
+            - '.'
+            - 'api'
+          EOF
+          node <<'NODE'
+          const fs = require('node:fs');
+
+          const source = fs.readFileSync('pnpm-lock.yaml', 'utf8');
+          const lines = source.split(/\n/u);
+          const sections = new Set([
+            'dependencies',
+            'devDependencies',
+            'optionalDependencies',
+          ]);
+
+          function unquote(value) {
+            const text = String(value).trim();
+            if (text.startsWith("'") && text.endsWith("'")) {
+              return text.slice(1, -1).replace(/''/gu, "'");
+            }
+            if (text.startsWith('"') && text.endsWith('"')) {
+              return JSON.parse(text);
+            }
+            return text;
+          }
+
+          const importers = new Map();
+          let inImporters = false;
+          let importer = null;
+          let section = null;
+          let dependency = null;
+
+          for (const line of lines) {
+            if (line === 'importers:') {
+              inImporters = true;
+              continue;
+            }
+            if (!inImporters) continue;
+            if (line === 'packages:') break;
+
+            let match = line.match(/^  (.+):$/u);
+            if (match) {
+              importer = unquote(match[1]);
+              if (!importers.has(importer)) importers.set(importer, {});
+              section = null;
+              dependency = null;
+              continue;
+            }
+
+            match = line.match(/^    (dependencies|devDependencies|optionalDependencies):$/u);
+            if (match && importer) {
+              section = match[1];
+              importers.get(importer)[section] = {};
+              dependency = null;
+              continue;
+            }
+
+            match = line.match(/^      (.+):$/u);
+            if (match && importer && section && sections.has(section)) {
+              dependency = unquote(match[1]);
+              continue;
+            }
+
+            match = line.match(/^        specifier: (.+)$/u);
+            if (match && importer && section && dependency) {
+              importers.get(importer)[section][dependency] = unquote(match[1]);
+              dependency = null;
+            }
+          }
+
+          for (const required of ['.', 'api']) {
+            if (!importers.has(required)) {
+              throw new Error(`Missing ${required} importer in immutable lock.`);
+            }
+          }
+
+          const root = importers.get('.');
+          const rootDependencies = {};
+          let inserted = false;
+          for (const [name, specifier] of Object.entries(root.dependencies || {})) {
+            rootDependencies[name] = specifier;
+            if (name === 'expo') {
+              rootDependencies['expo-font'] = '~13.0.4';
+              inserted = true;
+            }
+          }
+          if (!inserted) throw new Error('Root importer does not contain expo.');
+          if (Object.hasOwn(root.dependencies || {}, 'expo-font')) {
+            throw new Error('Immutable source unexpectedly already declares expo-font.');
+          }
+
+          const rootPackage = {
+            name: 'defectra-lock-root',
+            version: '1.0.0',
+            private: true,
+            packageManager: 'pnpm@10.20.0',
+            engines: { node: '22.x' },
+            ...root,
+            dependencies: rootDependencies,
+          };
+          const apiPackage = {
+            name: 'defectra-lock-api',
+            version: '1.0.0',
+            private: true,
+            packageManager: 'pnpm@10.20.0',
+            engines: { node: '22.x' },
+            ...importers.get('api'),
+          };
+
+          fs.writeFileSync('package.json', `${JSON.stringify(rootPackage, null, 2)}\n`);
+          fs.writeFileSync('api/package.json', `${JSON.stringify(apiPackage, null, 2)}\n`);
+          NODE
+
+      - name: Regenerate lock with exact pnpm
+        run: |
+          set -euo pipefail
+          pnpm install --lockfile-only --no-frozen-lockfile --ignore-scripts
+
+      - name: Prove the lock change is exactly one dependency block
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const crypto = require('node:crypto');
+          const fs = require('node:fs');
+
+          const before = fs.readFileSync('pnpm-lock.before.yaml', 'utf8');
+          const after = fs.readFileSync('pnpm-lock.yaml', 'utf8');
+          const block = /^      expo-font:\n        specifier: ~13\.0\.4\n        version: 13\.0\.4(?:\([^\n]+\))?\n/mu;
+          const matches = after.match(new RegExp(block.source, 'gmu')) || [];
+          if (matches.length !== 1) {
+            throw new Error(`Expected one root expo-font block, found ${matches.length}.`);
+          }
+          if (after.replace(block, '') !== before) {
+            throw new Error('Generated lock changed outside the one allowed expo-font importer block.');
+          }
+          const sha256 = (value) => crypto.createHash('sha256').update(value).digest('hex');
+          const receipt = {
+            schemaVersion: '1.0',
+            sourceRepository: 'EVAVO-STUDIO/client-chat-platform',
+            sourceCommit: '7f3dd0d11b68e2047ce1bcc3b27ca4f3b89a2220',
+            helperCommit: process.env.GITHUB_SHA,
+            runId: process.env.GITHUB_RUN_ID,
+            pnpm: process.env.PNPM_VERSION,
+            sourceLockBytes: Buffer.byteLength(before),
+            sourceLockSha256: sha256(before),
+            candidateLockBytes: Buffer.byteLength(after),
+            candidateLockSha256: sha256(after),
+            exactAllowedBlock: matches[0].trimEnd(),
+            sourceCodeCopied: false,
+            credentialsCopied: false,
+            productionDeploymentPerformed: false,
+          };
+          fs.writeFileSync('repair-evidence/receipt.json', `${JSON.stringify(receipt, null, 2)}\n`);
+          fs.copyFileSync('pnpm-lock.before.yaml', 'repair-evidence/pnpm-lock.before.yaml');
+          fs.copyFileSync('pnpm-lock.yaml', 'repair-evidence/pnpm-lock.yaml');
+          fs.copyFileSync('package.json', 'repair-evidence/package.json');
+          fs.mkdirSync('repair-evidence/api', { recursive: true });
+          fs.copyFileSync('api/package.json', 'repair-evidence/api/package.json');
+          NODE
+          diff -u pnpm-lock.before.yaml pnpm-lock.yaml > repair-evidence/pnpm-lock.diff || test "$?" = "1"
+          test "$(grep -c '^+' repair-evidence/pnpm-lock.diff)" = "3"
+          test "$(grep -c '^-' repair-evidence/pnpm-lock.diff)" = "0"
+
+      - name: Verify frozen dependency installation
+        run: |
+          set -euo pipefail
+          rm -rf node_modules api/node_modules
+          pnpm install --frozen-lockfile --ignore-scripts
+          test -d node_modules/.pnpm
+          test -e node_modules/expo-font
+
+      - name: Upload verified candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: defectra-expo-font-lock-${{ github.run_id }}
+          path: repair-evidence
+          if-no-files-found: error
+          retention-days: 14
+
+      - name: Publish success evidence
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          candidate_sha="$(node -p "require('./repair-evidence/receipt.json').candidateLockSha256")"
+          candidate_bytes="$(node -p "require('./repair-evidence/receipt.json').candidateLockBytes")"
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "## Defectra Expo font lock generation passed
+
+          - Helper commit: \`${GITHUB_SHA}\`
+          - Run ID: \`${GITHUB_RUN_ID}\`
+          - Artifact: \`defectra-expo-font-lock-${GITHUB_RUN_ID}\`
+          - Candidate lock bytes: \`${candidate_bytes}\`
+          - Candidate lock SHA-256: \`${candidate_sha}\`
+          - Exact diff: **one three-line root importer block**
+          - Frozen install: **passed**
+          - Defectra source copied: **false**
+          - Credentials copied: **false**
+          - Production deployment performed: **false**"
+
+      - name: Publish failure evidence
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "## Defectra Expo font lock generation failed
+
+          - Helper commit: \`${GITHUB_SHA}\`
+          - Run ID: \`${GITHUB_RUN_ID}\`
+          - No candidate is approved for transfer.
+          - Production deployment performed: **false**"
