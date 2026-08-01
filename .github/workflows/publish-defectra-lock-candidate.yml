@@ -1,0 +1,133 @@
+name: Publish Verified Defectra Lock Blob
+
+on:
+  push:
+    branches:
+      - work/defectra-expo-font-lock-20260801
+    paths:
+      - .github/workflows/publish-defectra-lock-candidate.yml
+
+permissions:
+  actions: read
+  contents: write
+  issues: write
+
+concurrency:
+  group: publish-defectra-expo-font-lock-20260801
+  cancel-in-progress: true
+
+env:
+  ISSUE_NUMBER: "2"
+  SOURCE_ARTIFACT_ID: "8818805641"
+  SOURCE_ARTIFACT_SHA256: "5feb2d0a5157a1bf9ae967c46606ed04813cf30fd590757bcb423d2ad3a15ba5"
+  CANDIDATE_LOCK_BYTES: "536822"
+  CANDIDATE_LOCK_SHA256: "aa431e3589087c5b86ffad13b141b818acf956f044b102a487c2b58f9061c068"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  publish:
+    name: Verify artifact and publish content-addressed blob
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - name: Check out exact helper branch commit
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Download exact successful artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api \
+            -H "Accept: application/vnd.github+json" \
+            -H "X-GitHub-Api-Version: 2022-11-28" \
+            "/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
+            > defectra-lock-artifact.zip
+          test "$(sha256sum defectra-lock-artifact.zip | cut -d' ' -f1)" = "${SOURCE_ARTIFACT_SHA256}"
+          rm -rf defectra-lock-artifact
+          mkdir defectra-lock-artifact
+          unzip -q defectra-lock-artifact.zip -d defectra-lock-artifact
+
+      - name: Reverify candidate receipt and exact transform
+        run: |
+          set -euo pipefail
+          test "$(wc -c < defectra-lock-artifact/pnpm-lock.yaml | tr -d ' ')" = "${CANDIDATE_LOCK_BYTES}"
+          test "$(sha256sum defectra-lock-artifact/pnpm-lock.yaml | cut -d' ' -f1)" = "${CANDIDATE_LOCK_SHA256}"
+          python - <<'PY'
+          import hashlib
+          import json
+          import re
+          from pathlib import Path
+
+          root = Path('defectra-lock-artifact')
+          before = (root / 'pnpm-lock.before.yaml').read_text(encoding='utf-8')
+          after = (root / 'pnpm-lock.yaml').read_text(encoding='utf-8')
+          receipt = json.loads((root / 'receipt.json').read_text(encoding='utf-8'))
+          pattern = re.compile(
+              r'^      expo-font:\n'
+              r'        specifier: ~13\.0\.4\n'
+              r'        version: 13\.0\.4(?:\([^\n]+\))?\n',
+              re.MULTILINE,
+          )
+          matches = pattern.findall(after)
+          assert len(matches) == 1, len(matches)
+          assert pattern.sub('', after, count=1) == before
+          assert len(after.encode('utf-8')) == 536822
+          assert hashlib.sha256(after.encode('utf-8')).hexdigest() == (
+              'aa431e3589087c5b86ffad13b141b818acf956f044b102a487c2b58f9061c068'
+          )
+          assert receipt['runId'] == '30700974475'
+          assert receipt['candidateLockSha256'] == hashlib.sha256(
+              after.encode('utf-8')
+          ).hexdigest()
+          PY
+
+      - name: Commit verified candidate blob to helper branch
+        id: publish
+        run: |
+          set -euo pipefail
+          mkdir -p generated/defectra-expo-font-lock
+          cp defectra-lock-artifact/pnpm-lock.yaml \
+            generated/defectra-expo-font-lock/pnpm-lock.yaml
+          cp defectra-lock-artifact/pnpm-lock.diff \
+            generated/defectra-expo-font-lock/pnpm-lock.diff
+          cp defectra-lock-artifact/receipt.json \
+            generated/defectra-expo-font-lock/receipt.json
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add generated/defectra-expo-font-lock
+          git commit -m "chore(lock): publish verified Defectra Expo font candidate"
+          published_commit="$(git rev-parse HEAD)"
+          blob_sha="$(git rev-parse HEAD:generated/defectra-expo-font-lock/pnpm-lock.yaml)"
+          test "${blob_sha}" = "860c2170f87c472cbcd72a244d98a093d3d11b6b"
+          git push origin "HEAD:refs/heads/work/defectra-expo-font-lock-20260801"
+          echo "published_commit=${published_commit}" >> "${GITHUB_OUTPUT}"
+          echo "blob_sha=${blob_sha}" >> "${GITHUB_OUTPUT}"
+
+      - name: Publish bounded evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PUBLISHED_COMMIT: ${{ steps.publish.outputs.published_commit }}
+          BLOB_SHA: ${{ steps.publish.outputs.blob_sha }}
+        run: |
+          set -euo pipefail
+          gh issue comment "${ISSUE_NUMBER}" \
+            --repo "${GITHUB_REPOSITORY}" \
+            --body "## Verified Defectra lock blob published
+
+          - Source successful run: \`30700974475\`
+          - Artifact ID: \`${SOURCE_ARTIFACT_ID}\`
+          - Published helper commit: \`${PUBLISHED_COMMIT}\`
+          - Git blob SHA: \`${BLOB_SHA}\`
+          - Candidate SHA-256: \`${CANDIDATE_LOCK_SHA256}\`
+          - Exact transform reverified: **passed**
+          - Production deployment performed: **false**"
