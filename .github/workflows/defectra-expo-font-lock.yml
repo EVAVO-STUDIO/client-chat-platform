@@ -128,7 +128,7 @@ jobs:
             if (!inImporters) continue;
             if (line === 'packages:') break;
 
-            let match = line.match(/^  (.+):$/u);
+            let match = line.match(/^  (\S.*):$/u);
             if (match) {
               importer = unquote(match[1]);
               if (!importers.has(importer)) importers.set(importer, {});
@@ -145,7 +145,7 @@ jobs:
               continue;
             }
 
-            match = line.match(/^      (.+):$/u);
+            match = line.match(/^      (\S.*):$/u);
             if (match && importer && section && sections.has(section)) {
               dependency = unquote(match[1]);
               continue;
@@ -248,8 +248,8 @@ jobs:
           fs.copyFileSync('api/package.json', 'repair-evidence/api/package.json');
           NODE
           diff -u pnpm-lock.before.yaml pnpm-lock.yaml > repair-evidence/pnpm-lock.diff || test "$?" = "1"
-          test "$(grep -c '^+' repair-evidence/pnpm-lock.diff)" = "3"
-          test "$(grep -c '^-' repair-evidence/pnpm-lock.diff)" = "0"
+          test "$(grep -c '^+[^+]' repair-evidence/pnpm-lock.diff)" = "3"
+          test "$(grep -c '^-[^-]' repair-evidence/pnpm-lock.diff)" = "0"
 
       - name: Verify frozen dependency installation
         run: |
