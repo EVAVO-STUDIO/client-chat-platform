@@ -1,0 +1,30 @@
+{
+  "schemaVersion": "1.1",
+  "sourceRepository": "EVAVO-STUDIO/defectra",
+  "sourceCommit": "6385d5be061b62efa096280778d407e586db09dc",
+  "dependencyFingerprintSha256": "84c92d8b511753249ca40225a79d5ebf353875aa00179f7549fc3cdad5d6ddb0",
+  "workspaceConfigSha256": "5ac4bc6bf46c6d254ea10f2fa1d98cbf81f52ed13b9ca5aa88f2d36dfb32330d",
+  "npmrcSha256": "3006cdceb09d577fd3ec78198b05117a2b3a311c4c00b37af52d7453cd9b51e7",
+  "pnpm": "10.20.0",
+  "lockBytes": 526846,
+  "lockSha256": "032fb11b5eab8843453f9079bef9844538df12e730c17269e4e071fddd318cb7",
+  "rootImporterPresent": true,
+  "apiImporterPresent": true,
+  "frozenLockfileVerification": true,
+  "frozenInstallVerification": true,
+  "scriptsExecuted": false,
+  "sourceCodeCopied": false,
+  "credentialsCopied": false,
+  "releaseEvidence": false,
+  "deploymentPerformed": false,
+  "rootSpecifiers": {
+    "@expo/vector-icons": "~14.0.4",
+    "@react-navigation/native": "^7.0.14",
+    "@react-navigation/native-stack": "^7.2.0",
+    "expo-asset": "~11.0.5",
+    "expo-clipboard": "~7.0.1",
+    "expo-file-system": "~18.0.12",
+    "expo-location": "~18.0.10",
+    "expo-router": "~4.0.22"
+  }
+}
