@@ -1,0 +1,88 @@
+name: Generate Defectra SDK 52 lock candidate
+
+on:
+  push:
+    branches:
+      - "agent/defectra-sdk52-lock-generator-20260802"
+    paths:
+      - ".github/workflows/generate-defectra-sdk52-lock-candidate.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: generate-defectra-sdk52-lock-candidate-20260802
+  cancel-in-progress: true
+
+env:
+  CI: "1"
+  EXPO_NO_TELEMETRY: "1"
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  generate:
+    name: Resolve and freeze the root and API dependency graph
+    if: github.repository == 'EVAVO-STUDIO/client-chat-platform'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+
+    steps:
+      - name: Check out the exact generator trigger
+        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          clean: true
+          persist-credentials: true
+
+      - name: Use the repository Node version
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version-file: .nvmrc
+
+      - name: Activate exact pnpm
+        run: |
+          set -euo pipefail
+          corepack enable
+          corepack prepare pnpm@10.20.0 --activate
+          node --version
+          pnpm --version
+
+      - name: Generate and frozen-install the candidate
+        run: |
+          set -euo pipefail
+          node --check tools/defectra-sdk52-lock-candidate/generate.mjs
+          node tools/defectra-sdk52-lock-candidate/generate.mjs
+
+      - name: Publish only bounded candidate files to the isolated branch
+        env:
+          TRIGGER_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          git add generated/defectra-sdk52-lock-candidate
+          git diff --cached --check
+
+          mapfile -t changed < <(git diff --cached --name-only)
+          expected=(
+            generated/defectra-sdk52-lock-candidate/expected-root-specifiers.json
+            generated/defectra-sdk52-lock-candidate/pnpm-lock.yaml
+            generated/defectra-sdk52-lock-candidate/receipt.json
+          )
+          if test "${#changed[@]}" -ne "${#expected[@]}"; then
+            printf 'Unexpected candidate file count:\n' >&2
+            printf '%s\n' "${changed[@]}" >&2
+            exit 1
+          fi
+          for index in "${!expected[@]}"; do
+            test "${changed[$index]}" = "${expected[$index]}"
+          done
+
+          git fetch origin "${GITHUB_REF_NAME}"
+          test "$(git rev-parse "origin/${GITHUB_REF_NAME}")" = "${TRIGGER_SHA}"
+          git config user.name "EVAVO Lock Candidate Bot"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "build(candidate): publish Defectra SDK 52 frozen graph"
+          git push origin HEAD:"${GITHUB_REF_NAME}"
