@@ -1,0 +1,27 @@
+{
+  "schemaVersion": "defectra-sdk52-lock-candidate-v1",
+  "sourceRepository": "EVAVO-STUDIO/defectra",
+  "sourceBranch": "main",
+  "packageManifestSha": "8593243e6f73d54934fc87405bcb823318ce5d18",
+  "apiManifestSha": "184df1ba9979e9438853b1489d1fe4a6c175d7b6",
+  "workspaceManifestSha": "32e69d11be3d57c5ea2a835949462234a9b6c865",
+  "npmrcSha": "d6c62115e025530628275b3c79d6ef75e594e7ea",
+  "nodeVersion": "v22.16.0",
+  "pnpmVersion": "10.20.0",
+  "rootAndApiImportersPresent": true,
+  "frozenInstallPassed": true,
+  "scriptsExecutedDuringInstall": false,
+  "lockBytes": 526846,
+  "lockSha256": "032fb11b5eab8843453f9079bef9844538df12e730c17269e4e071fddd318cb7",
+  "expectedRootSpecifiers": {
+    "@expo/vector-icons": "~14.0.4",
+    "@react-navigation/native": "^7.0.14",
+    "@react-navigation/native-stack": "^7.2.0",
+    "expo-asset": "~11.0.5",
+    "expo-clipboard": "~7.0.1",
+    "expo-file-system": "~18.0.12",
+    "expo-location": "~18.0.10",
+    "expo-router": "~4.0.22"
+  },
+  "releaseEvidence": false
+}
