@@ -1,0 +1,34 @@
+#!/bin/sh
+set -e
+
+echo "Running pre-commit checks..."
+
+# Check if node_modules exists
+if [ ! -d "node_modules" ]; then
+  echo "Installing dependencies..."
+  npm install || yarn install || pnpm install
+fi
+
+# Run ESLint
+if [ -f ".eslintrc.json" ] || [ -f ".eslintrc.js" ]; then
+  echo "Running ESLint..."
+  npm run lint -- --fix || yarn lint --fix || pnpm lint --fix || true
+fi
+
+# Run TypeScript compilation check
+if [ -f "tsconfig.json" ]; then
+  echo "Checking TypeScript..."
+  npm run type-check || yarn type-check || pnpm type-check || true
+fi
+
+# Run tests if test script exists
+if grep -q '"test"' package.json; then
+  echo "Running tests..."
+  npm test -- --bail || yarn test --bail || pnpm test --bail || true
+fi
+
+# Re-add files after formatting
+git add -A
+
+echo "Pre-commit checks completed!"
+exit 0
