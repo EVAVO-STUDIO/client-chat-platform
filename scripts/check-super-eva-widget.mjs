@@ -39,7 +39,7 @@ for (const required of [
   "parseSuperEvaChatPresentation",
   "superEvaPresentationContentMatches",
   "evavo-storage://",
-  "EVA-STUDIO/evavo-glasses",
+  "EVAVO-STUDIO/evavo-glasses",
   "SUPER_EVA_CHAT_BINDING_INVALID",
 ]) {
   if (!shared.includes(required)) {
