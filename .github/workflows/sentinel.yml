@@ -1,104 +1,86 @@
-name: Sentinel v5.0 Automated Analysis
+name: Sentinel read-only repository diagnostics
 
 on:
   schedule:
-    # Run daily at 2 AM UTC
-    - cron: '0 2 * * *'
+    - cron: "0 2 * * *"
   push:
-    branches:
-      - main
-      - develop
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/workflows/sentinel.yml"
   pull_request:
-    branches:
-      - main
+    branches: [main]
+    paths:
+      - "worker/**"
+      - "scripts/**"
+      - "package.json"
+      - "package-lock.json"
+      - ".nvmrc"
+      - ".github/workflows/sentinel.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: client-chat-sentinel-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
-  sentinel-analysis:
-    runs-on: ubuntu-latest
-
-    strategy:
-      matrix:
-        node-version: [18.x, 20.x]
+  diagnose:
+    name: Verify Worker security, types, bundle, and source integrity
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
+      - name: Check out exact source without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          fetch-depth: 0
+          persist-credentials: false
 
-      - name: Setup Node.js ${{ matrix.node-version }}
-        uses: actions/setup-node@v4
+      - name: Use the declared Node.js runtime
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
-          node-version: ${{ matrix.node-version }}
-          cache: 'npm'
+          node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
+          package-manager-cache: false
 
-      - name: Install dependencies
-        run: npm ci
+      - name: Install the frozen Worker dependency graph
+        run: npm ci --prefix worker --no-audit --no-fund
 
-      - name: Run Sentinel Analysis
-        run: node .sentinel/sentinel-orchestrator.js
+      - name: Run repository-native Sentinel diagnostics
+        run: npm run check
 
-      - name: TypeScript Check
-        run: npx tsc --noEmit
-        continue-on-error: true
-
-      - name: Run Tests
-        run: npm test
-        continue-on-error: true
-
-      - name: Build Project
-        run: npm run build
-        continue-on-error: true
-
-      - name: Upload Analysis Reports
-        uses: actions/upload-artifact@v3
+      - name: Prove diagnostics did not mutate the checkout
         if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
+
+      - name: Record bounded diagnostic evidence
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/sentinel"
+          printf '{"schemaVersion":"evavo.sentinel.repository-diagnostic.v1","repository":"%s","sha":"%s","node":"%s","npm":"%s","nativeValidation":"npm run check","sourceMutation":"forbidden","automaticCommit":false,"automaticPush":false}\n' \
+            "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$(node --version 2>/dev/null || true)" "$(npm --version 2>/dev/null || true)" \
+            > "$RUNNER_TEMP/sentinel/client-chat-diagnostic.json"
+
+      - name: Upload bounded diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: sentinel-reports
-          path: .sentinel/reports/
-          retention-days: 30
-
-      - name: Comment PR with Results
-        if: github.event_name == 'pull_request'
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('.sentinel/reports/analysis-report.json', 'utf8'));
-            const summary = report.summary;
-
-            const comment = `
-## 🔍 Sentinel v5.0 Analysis Results
-- **Repositories Analyzed:** ${summary.totalRepos}
-- **Successful:** ${summary.successful}
-- **Failed:** ${summary.failed}
-- **Total Issues:** ${summary.totalIssues}
-- **Security Vulnerabilities:** ${summary.totalVulnerabilities}
-
-[View detailed report](https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }})
-            `;
-
-            github.rest.issues.createComment({
-              issue_number: context.issue.number,
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              body: comment
-            });
-
-      - name: Create Issue for High Priority Items
-        if: failure()
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const fs = require('fs');
-            const report = JSON.parse(fs.readFileSync('.sentinel/reports/analysis-report.json', 'utf8'));
-
-            if (report.summary.totalVulnerabilities > 0) {
-              github.rest.issues.create({
-                owner: context.repo.owner,
-                repo: context.repo.repo,
-                title: `[SECURITY] ${report.summary.totalVulnerabilities} vulnerabilities found`,
-                body: `Sentinel v5.0 detected ${report.summary.totalVulnerabilities} security vulnerabilities. Please review and update dependencies.`,
-                labels: ['security', 'sentinel']
-              });
-            }
+          name: client-chat-sentinel-${{ github.run_id }}
+          path: ${{ runner.temp }}/sentinel/client-chat-diagnostic.json
+          if-no-files-found: warn
+          retention-days: 14
+          include-hidden-files: false
