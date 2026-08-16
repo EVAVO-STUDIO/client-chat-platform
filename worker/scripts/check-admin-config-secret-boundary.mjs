@@ -46,7 +46,7 @@ const runtime = read(workerRoot, "src/runtime.ts");
 const behavior = read(workerRoot, "scripts/check-runtime-storage-behaviour.mjs");
 const admin = read(repositoryRoot, "admin/index.html");
 const packageSource = read(workerRoot, "package.json");
-const workflow = read(repositoryRoot, ".github/workflows/worker-security.yml");
+const workflow = read(repositoryRoot, ".github/workflows/ci.yml");
 const documentation = read(repositoryRoot, "docs/admin-config-secret-boundary.md");
 const readme = read(repositoryRoot, "README.md");
 
@@ -156,7 +156,7 @@ forbidTokens("Runtime storage behavioral verification", behavior, [
 ]);
 
 requireTokens("Administrator console defence in depth", admin, [
-  "Secret-like fields are redacted locally",
+  "redacts secret-like fields locally",
   "function redact(value",
   'key === "botKeyConfigured" || key === "botKeyStatus"',
   "/token|secret|password|botkey|authorization/i",
@@ -196,11 +196,13 @@ for (const [name, command] of Object.entries(expectedScripts)) {
 }
 
 requireTokens("Read-only security workflow", workflow, [
-  "npm run check:security",
-  "npm run typecheck",
-  "npm run check:bundle",
+  "node scripts/check-release-contract.mjs",
+  "npm --prefix worker ci --no-audit --no-fund",
+  "npm --prefix worker run check",
   "permissions:\n  contents: read",
   "persist-credentials: false",
+  "node-version-file: .nvmrc",
+  "git status --porcelain=v1 --untracked-files=all",
 ]);
 forbidTokens("Read-only security workflow", workflow, [
   "wrangler deploy --env production",

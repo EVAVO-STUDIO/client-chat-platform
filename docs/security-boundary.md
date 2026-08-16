@@ -316,8 +316,10 @@ npm run check
 Order is mandatory:
 
 1. tracked-source secret safety;
-2. deterministic security architecture contract;
-3. TypeScript validation;
-4. Wrangler no-deploy dry-run bundle.
+2. administrator configuration and runtime-storage behavior safety through the security prehook;
+3. deterministic security architecture contract;
+4. Super EVA widget, bounded-streaming and presentation-contract validation;
+5. TypeScript validation;
+6. Wrangler no-deploy dry-run bundle.
 
 `npm run check:bundle` writes only to the ignored `.wrangler/dry-run` directory. The npm `predeploy` hook runs the complete chain before deployment. The read-only GitHub Actions workflow runs the same checks without requesting Worker secrets and without publishing the Worker.

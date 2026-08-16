@@ -89,10 +89,11 @@ The check chain is deliberately ordered:
 1. `npm run check:source-secrets`
 2. `npm run check:config-secrets`, automatically invoked by the `precheck:security` lifecycle hook
 3. `npm run check:security`
-4. `npm run typecheck`
-5. `npm run check:bundle`
+4. `npm run check:super-eva`
+5. `npm run typecheck`
+6. `npm run check:bundle`
 
-The config-secret gate verifies server-side bot-key projection, preservation and explicit clearing, retired webhook credential removal, pseudonymous rate-limit keys and the corresponding documentation. The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
+The config-secret gate verifies server-side bot-key projection, preservation and explicit clearing, retired webhook credential removal, pseudonymous rate-limit keys and the corresponding documentation. The Super EVA gate validates the isolated animated widget, bounded streaming, hash-bound presentation text, approved-audio resolver boundary and shared presentation contract. The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
 
 The tracked-source gate rejects:
 
@@ -119,6 +120,7 @@ Copy-Item ..\.dev.vars.example .\.dev.vars
 cmd /c "npm run check:source-secrets"
 cmd /c "npm run check:config-secrets"
 cmd /c "npm run check:security"
+cmd /c "npm run check:super-eva"
 cmd /c "npm run typecheck"
 cmd /c "npm run check:bundle"
 cmd /c "npm run dev"
@@ -189,6 +191,6 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The Worker package’s `predeploy` hook reruns source-secret safety, config-secret safety, the deterministic boundary contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
+The Worker package’s `predeploy` hook reruns source-secret safety, config-secret safety, the deterministic boundary contract, the Super EVA widget and presentation contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
 
 See [`DEPLOY.md`](DEPLOY.md) for the complete activation, migration, verification and operator procedure.

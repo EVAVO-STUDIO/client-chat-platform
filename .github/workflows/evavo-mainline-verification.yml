@@ -23,8 +23,9 @@ concurrency:
 jobs:
   verify-client-chat:
     name: Verify Client Chat contracts and Worker bundle
-    runs-on: ubuntu-latest
-    timeout-minutes: 45
+    if: github.repository == 'EVAVO-STUDIO/client-chat-platform' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
 
     steps:
       - name: Validate dispatch input
@@ -33,17 +34,13 @@ jobs:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
           REQUEST_SOURCE: ${{ inputs.request_source }}
         run: |
-          if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
-            echo "Invalid expected_sha" >&2
-            exit 1
-          fi
-          if [[ "$REQUEST_SOURCE" != "evavo-development-studio" ]]; then
-            echo "Unsupported request_source" >&2
-            exit 1
-          fi
+          set -euo pipefail
+          [[ "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]
+          test "$EXPECTED_SHA" = "$GITHUB_SHA"
+          test "$REQUEST_SOURCE" = "evavo-development-studio"
 
-      - name: Check out exact mainline commit
-        uses: actions/checkout@08eba0b27e820071cde6df949e0beb9ba4906955 # v4.3.0
+      - name: Check out exact mainline commit without credentials
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
           ref: ${{ inputs.expected_sha }}
           fetch-depth: 0
@@ -54,48 +51,61 @@ jobs:
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          ACTUAL_SHA="$(git rev-parse HEAD)"
-          test "$ACTUAL_SHA" = "$EXPECTED_SHA"
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           git merge-base --is-ancestor "$EXPECTED_SHA" origin/main
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
       - name: Set up exact Node.js runtime
-        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version-file: .nvmrc
+          cache: npm
+          cache-dependency-path: worker/package-lock.json
           package-manager-cache: false
 
-      - name: Activate exact npm
+      - name: Verify exact runtime authority
         shell: bash
         run: |
-          npm install --global npm@10.9.2 --no-audit --no-fund
-          test "$(npm --version)" = "10.9.2"
+          set -euo pipefail
+          test "$(node --version)" = "v24.19.0"
+          test "$(npm --version)" = "11.17.0"
 
-      - name: Verify release contract
+      - name: Verify release and workflow contract
         run: node scripts/check-release-contract.mjs
 
-      - name: Install committed dependency graph
-        run: npm ci --no-audit --no-fund
+      - name: Install committed Worker dependency graph
+        run: npm --prefix worker ci --no-audit --no-fund
 
-      - name: Run complete source contract chain
-        run: npm run check
+      - name: Run complete source, security, Super EVA, type, and bundle chain
+        run: npm --prefix worker run check
 
-      - name: Build Cloudflare Worker bundle without deployment
-        run: npm run build
+      - name: Prove verification did not mutate the checkout
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code
+          git diff --cached --exit-code
+          test -z "$(git status --porcelain=v1 --untracked-files=all)"
 
-      - name: Record verification receipt
+      - name: Record bounded verification receipt
         if: always()
         shell: bash
         env:
           EXPECTED_SHA: ${{ inputs.expected_sha }}
         run: |
-          mkdir -p artifacts/verification
-          printf '{"schemaVersion":"1.0","repository":"EVAVO-STUDIO/client-chat-platform","sha":"%s","workflow":"evavo-mainline-verification.yml","node":"22.16.0","npm":"10.9.2","deployment":"disabled","providerCredentials":"not-required"}\n' "$EXPECTED_SHA" > artifacts/verification/receipt.json
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/client-chat-verification"
+          printf '{"schemaVersion":"1.0","repository":"EVAVO-STUDIO/client-chat-platform","sha":"%s","workflow":"evavo-mainline-verification.yml","node":"24.19.0","npm":"11.17.0","sourceMutation":"forbidden","deployment":"disabled","providerCredentials":"not-required"}\n' \
+            "$EXPECTED_SHA" > "$RUNNER_TEMP/client-chat-verification/receipt.json"
 
       - name: Upload bounded verification evidence
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: client-chat-${{ inputs.expected_sha }}
-          path: artifacts/verification/receipt.json
+          path: ${{ runner.temp }}/client-chat-verification/receipt.json
           if-no-files-found: error
           retention-days: 14
+          include-hidden-files: false

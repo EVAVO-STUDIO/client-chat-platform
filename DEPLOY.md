@@ -70,9 +70,11 @@ cmd /c "npm run check"
 The order is mandatory:
 
 1. `npm run check:source-secrets`
-2. `npm run check:security`
-3. `npm run typecheck`
-4. `npm run check:bundle`
+2. `npm run check:config-secrets` through the `precheck:security` lifecycle hook
+3. `npm run check:security`
+4. `npm run check:super-eva`
+5. `npm run typecheck`
+6. `npm run check:bundle`
 
 `npm run check:bundle` runs Wrangler with `--dry-run` into `.wrangler/dry-run`. It validates the active module graph and configuration without publishing the Worker.
 
@@ -287,7 +289,7 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The package `predeploy` hook reruns all four checks, including `npm run check:bundle`, before Wrangler uploads anything.
+The package `predeploy` hook reruns the complete source, configuration, security, Super EVA, TypeScript and bundle chain before Wrangler uploads anything.
 
 Direct Wrangler invocation bypasses the npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
 

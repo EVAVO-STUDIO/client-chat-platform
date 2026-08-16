@@ -17,7 +17,7 @@ npm --prefix worker ci --no-audit --no-fund
 npm --prefix worker run check
 ```
 
-The check chain must retain source-secret, admin-config-secret, runtime-storage, security, TypeScript and Wrangler dry-run bundle verification. Do not replace it with a generic build command.
+The check chain must retain source-secret, admin-config-secret, runtime-storage, security, Super EVA widget and presentation, TypeScript and Wrangler dry-run bundle verification. Do not replace it with a generic build command.
 
 ## Security and privacy boundaries
 

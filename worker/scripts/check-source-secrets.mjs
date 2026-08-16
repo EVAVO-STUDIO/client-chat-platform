@@ -211,9 +211,10 @@ const expectedScripts = {
   "check:config-secrets": "npm run check:config-secrets:source && npm run check:config-secrets:behavior",
   "precheck:security": "npm run check:config-secrets",
   "check:security": "node scripts/check-security-contract.mjs",
+  "check:super-eva": "node ../scripts/check-super-eva-widget.mjs",
   typecheck: "tsc -p tsconfig.json --noEmit",
   "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
-  check: "npm run check:source-secrets && npm run check:security && npm run typecheck && npm run check:bundle",
+  check: "npm run check:source-secrets && npm run check:security && npm run check:super-eva && npm run typecheck && npm run check:bundle",
 };
 for (const [name, command] of Object.entries(expectedScripts)) {
   if (packageJson.scripts?.[name] !== command) {
@@ -315,7 +316,7 @@ const contract = fs.existsSync(contractPath)
 for (const token of [
   '"check:source-secrets": "node scripts/check-source-secrets.mjs"',
   '"check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc"',
-  "npm run check:source-secrets && npm run check:security && npm run typecheck && npm run check:bundle",
+  "npm run check:source-secrets && npm run check:security && npm run check:super-eva && npm run typecheck && npm run check:bundle",
   "trackedSourceSecretSafetyRequired: true",
   "dryRunBundleRequired: true",
 ]) {
@@ -327,7 +328,7 @@ for (const token of [
 console.log(JSON.stringify({
   passed: errors.length === 0,
   repository: "EVAVO-STUDIO/client-chat-platform",
-  contract: "client-chat-platform-tracked-source-secret-safety-v5-behavioral-config",
+  contract: "client-chat-platform-tracked-source-secret-safety-v6-super-eva",
   trackedFilesInspected: files.length,
   maximumScannedFileBytes: MAX_SCANNED_FILE_BYTES,
   trackedEnvironmentFilesAllowed: [...ALLOWED_ENV_FILES],

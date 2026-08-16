@@ -26,6 +26,7 @@
     "npm --prefix worker run check:source-secrets",
     "npm --prefix worker run check:config-secrets",
     "npm --prefix worker run check:security",
+    "npm --prefix worker run check:super-eva",
     "npm --prefix worker run typecheck",
     "npm --prefix worker run check:bundle"
   ],

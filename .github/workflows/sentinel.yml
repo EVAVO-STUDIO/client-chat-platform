@@ -5,22 +5,8 @@ on:
     - cron: "0 2 * * *"
   push:
     branches: [main]
-    paths:
-      - "worker/**"
-      - "scripts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".nvmrc"
-      - ".github/workflows/sentinel.yml"
   pull_request:
     branches: [main]
-    paths:
-      - "worker/**"
-      - "scripts/**"
-      - "package.json"
-      - "package-lock.json"
-      - ".nvmrc"
-      - ".github/workflows/sentinel.yml"
   workflow_dispatch:
 
 permissions:
@@ -50,11 +36,21 @@ jobs:
           cache-dependency-path: worker/package-lock.json
           package-manager-cache: false
 
+      - name: Verify exact runtime authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(node --version)" = "v24.19.0"
+          test "$(npm --version)" = "11.17.0"
+
+      - name: Verify release and workflow contract
+        run: node scripts/check-release-contract.mjs
+
       - name: Install the frozen Worker dependency graph
-        run: npm ci --prefix worker --no-audit --no-fund
+        run: npm --prefix worker ci --no-audit --no-fund
 
       - name: Run repository-native Sentinel diagnostics
-        run: npm run check
+        run: npm --prefix worker run check
 
       - name: Prove diagnostics did not mutate the checkout
         if: always()
@@ -71,7 +67,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "$RUNNER_TEMP/sentinel"
-          printf '{"schemaVersion":"evavo.sentinel.repository-diagnostic.v1","repository":"%s","sha":"%s","node":"%s","npm":"%s","nativeValidation":"npm run check","sourceMutation":"forbidden","automaticCommit":false,"automaticPush":false}\n' \
+          printf '{"schemaVersion":"evavo.sentinel.repository-diagnostic.v1","repository":"%s","sha":"%s","node":"%s","npm":"%s","nativeValidation":"npm --prefix worker run check","sourceMutation":"forbidden","automaticCommit":false,"automaticPush":false}\n' \
             "$GITHUB_REPOSITORY" "$GITHUB_SHA" "$(node --version 2>/dev/null || true)" "$(npm --version 2>/dev/null || true)" \
             > "$RUNNER_TEMP/sentinel/client-chat-diagnostic.json"
 
