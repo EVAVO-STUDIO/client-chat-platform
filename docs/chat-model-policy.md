@@ -107,7 +107,7 @@ Before adding another model to either reviewed allowlist:
 5. for chat models, confirm the synchronous response is handled by the runtime response adapter;
 6. for embedding models, confirm its result can pass through unchanged to the existing retrieval code;
 7. confirm the model does not require a new credential, external network request or billing integration;
-8. update `worker/scripts/check-chat-model-policy.mjs` and any focused compatibility guard in the same change;
+8. update `worker/scripts/check-chat-model-policy-v2.mjs` and any focused compatibility guard in the same change;
 9. run the complete canonical worker check before deployment;
 10. deploy through the guarded Wrangler path only after the check is green.
 
