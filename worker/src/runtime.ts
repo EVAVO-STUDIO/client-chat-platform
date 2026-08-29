@@ -16,8 +16,9 @@ export interface Env extends HardenedEnv {}
 export const ACTIVE_CHAT_RUNTIME_CONTRACT =
   "client_chat_active_runtime_v2" as const;
 
-const DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct";
+const DEFAULT_CHAT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const RETIRED_CHAT_MODELS = new Set([
+  "@cf/meta/llama-3.2-3b-instruct",
   "@cf/meta/llama-3-8b-instruct",
 ]);
 const MODEL_PATTERN = /^@cf\/[A-Za-z0-9._/-]{1,120}$/;
