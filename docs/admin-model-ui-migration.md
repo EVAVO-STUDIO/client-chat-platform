@@ -1,50 +1,45 @@
-# Administrator model UI migration
+# Administrator model UI contract
 
-The Worker runtime and protected configuration boundary already own the public-chat model policy. The reviewed chat model is:
+The Worker runtime and protected configuration boundary own the public-chat model policy. The reviewed chat model is:
 
 ```text
 @cf/zai-org/glm-4.7-flash
 ```
 
-The administrator console still contains a historical editable model field whose placeholder references the retired Llama fallback. That field is migration debt, not supported model-selection authority.
+The administrator console now reflects that authority directly. The historical editable Llama model field has been retired and is no longer an operator model-selection surface.
 
-## Target operator experience
+## Current operator experience
 
-The administrator console should present the model as server-owned configuration:
+The administrator console must present the model as server-owned configuration:
 
 - label it `Reviewed chat model`;
 - show `@cf/zai-org/glm-4.7-flash`;
-- make the control read-only or render it as non-editable status text;
+- keep the control read-only or render it as non-editable status text;
 - explain briefly that model changes require a reviewed runtime-policy update;
 - never expose provider credentials, billing controls or arbitrary model discovery;
 - never imply that typing another `@cf/...` identifier changes the executing model.
 
-The existing bot-key field and explicit clear control are unrelated and must keep their current semantics.
+The existing bot-key field and explicit clear control are unrelated and keep their current semantics.
 
 ## Payload rule
 
-A safe admin UI may either:
+The current admin UI sends the exact reviewed model value `@cf/zai-org/glm-4.7-flash`. A future UI may instead omit the model field and let the server-owned boundary supply the reviewed model, but it must never send visitor/operator-entered arbitrary model identifiers.
 
-1. send the exact reviewed model value `@cf/zai-org/glm-4.7-flash`; or
-2. omit the model field and let the server-owned boundary supply the reviewed model.
+The protected storage boundary remains authoritative. It continues to canonicalize stored configuration and sanitized `/admin/get` and `/admin/upsert` projections to the reviewed model.
 
-It must not send visitor/operator-entered arbitrary model identifiers.
+## Invariants
 
-The protected storage boundary remains authoritative even after this UI patch. It must continue to canonicalize stored configuration and sanitized `/admin/get` and `/admin/upsert` projections to the reviewed model.
+Any future `admin/index.html` edit must preserve all of the following:
 
-## Patch constraints
+1. the retired Llama placeholder stays absent;
+2. editable model authority stays absent;
+3. the admin token remains a non-persistent password field;
+4. `credentials: "omit"` and `referrerPolicy: "no-referrer"` remain intact;
+5. exact Bearer authorization remains intact;
+6. bot-key configured/not-configured/unknown status behavior remains intact;
+7. explicit bot-key clear behavior remains intact;
+8. webhook/auth-secret fields remain absent;
+9. `worker/scripts/check-admin-model-truth.mjs` stays in the canonical Worker validation chain;
+10. the server model allowlist remains the execution authority.
 
-When `admin/index.html` is edited through a patch-safe local workflow:
-
-1. replace the retired Llama placeholder;
-2. remove editable model authority;
-3. preserve the admin token as a non-persistent password field;
-4. preserve `credentials: "omit"` and `referrerPolicy: "no-referrer"`;
-5. preserve exact Bearer authorization;
-6. preserve bot-key configured/not-configured/unknown status behavior;
-7. preserve explicit bot-key clear confirmation;
-8. keep webhook/auth-secret fields absent;
-9. update `worker/scripts/check-admin-model-truth.mjs` in the same commit;
-10. run the canonical Worker check before deployment.
-
-Do not weaken the server model allowlist merely to make the historical form field appear functional.
+Do not weaken the server model allowlist or reintroduce arbitrary model selection merely to expose more configuration in the operator UI.
