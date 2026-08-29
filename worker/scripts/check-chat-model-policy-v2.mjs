@@ -140,7 +140,7 @@ requireAll("model policy documentation", policy, [
   "maximum total chat message content: **75,000 characters**",
   "max_completion_tokens",
   "same 1,024-token hard ceiling",
-  "explicit **512-token** completion cap",
+  "explicit 512-token fallback",
   "run the complete canonical worker check before deployment",
 ]);
 
