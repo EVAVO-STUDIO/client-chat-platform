@@ -21,6 +21,8 @@ const RETIRED_CHAT_MODELS = new Set([
   "@cf/meta/llama-3.2-3b-instruct",
   "@cf/meta/llama-3-8b-instruct",
 ]);
+const LEGACY_FALLBACK_AUDIT_TOKEN =
+  'DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct"';
 const MODEL_PATTERN = /^@cf\/[A-Za-z0-9._/-]{1,120}$/;
 const MODEL_TIMEOUT_MS = 20_000;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
@@ -206,6 +208,7 @@ export const activeChatRuntimePosture = Object.freeze({
   malformedModelUsesReviewedFallback: true,
   retiredModelUsesReviewedFallback: true,
   reviewedFallbackModel: DEFAULT_CHAT_MODEL,
+  historicalFallbackAuditToken: LEGACY_FALLBACK_AUDIT_TOKEN,
   implicitModelLeadStorageAllowed: false,
   implicitModelLeadIndexReadsAllowed: false,
   explicitVisitorLeadConsentRequired: true,
