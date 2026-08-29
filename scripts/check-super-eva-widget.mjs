@@ -114,13 +114,44 @@ for (const prohibited of [
   /sprite(?:sheet)?/iu,
   /atlas(?:es)?/iu,
   /sequenceRelease/iu,
-  /animationProfile/iu,
 ]) {
   if (prohibited.test(widget)) {
     throw new Error(
       `SUPER EVA compatibility widget contains avatar-runtime surface: ${prohibited}`,
     );
   }
+}
+
+// animationProfile belongs to the shared presentation contract / Avatar Runtime.
+// The compatibility widget may carry the reviewed field as inert metadata only;
+// it must not grow profile-driven rendering, selectors or animation branching.
+const animationProfileOccurrences = widget.match(/animationProfile/g) ?? [];
+assert.equal(
+  animationProfileOccurrences.length,
+  3,
+  "SUPER EVA animationProfile metadata surface changed; review Avatar Runtime ownership before updating this guard",
+);
+for (const required of [
+  "avatar.dataset.animationProfile = presentation.avatar.animationProfile;",
+  'animationProfile: "natural",',
+  "avatarValue.animationProfile,",
+]) {
+  assert.ok(
+    widget.includes(required),
+    `SUPER EVA inert animationProfile compatibility token missing: ${required}`,
+  );
+}
+for (const prohibited of [
+  /\[data-animation-profile/iu,
+  /dataset\.animationProfile\s*===/iu,
+  /animationProfile\s*===/iu,
+  /switch\s*\([^)]*animationProfile/iu,
+  /animationProfile[^\n;]*(?:classList|style\.|animate\(|requestAnimationFrame|sequence|sprite|atlas)/iu,
+]) {
+  assert.ok(
+    !prohibited.test(widget),
+    `SUPER EVA compatibility widget turned animationProfile metadata into runtime behavior: ${prohibited}`,
+  );
 }
 
 assert.ok(
@@ -187,6 +218,7 @@ console.log("- portable widget, model policy v2, executable inference-boundary b
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
+console.log("- animationProfile remains inert shared-contract metadata; profile-driven rendering stays in Avatar Runtime");
 console.log("- GLM-4.7-Flash/BGE policy, bounded inference shapes, bounded current completion fields, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
 console.log("- production seed mutation remains an explicit separate operator action and is never coupled to Worker deploy");
 console.log("- Windows and POSIX execute the same local policy guard paths");
