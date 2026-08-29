@@ -8,6 +8,7 @@ const widgetUrl = new URL("widget/super-eva-embed.js", root);
 const sharedUrl = new URL("shared/superEvaPresentation.ts", root);
 const readmeUrl = new URL("widget/README.md", root);
 const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
+const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
 const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
 const [widget, shared, readme, boundary] = await Promise.all([
   readFile(widgetUrl, "utf8"),
@@ -15,6 +16,18 @@ const [widget, shared, readme, boundary] = await Promise.all([
   readFile(readmeUrl, "utf8"),
   readFile(boundaryUrl, "utf8"),
 ]);
+
+function runLocalGuard(url, label) {
+  const result = spawnSync(process.execPath, [fileURLToPath(url)], {
+    encoding: "utf8",
+  });
+  if (result.status !== 0) {
+    throw new Error(
+      result.stderr || result.stdout || `${label} failed`,
+    );
+  }
+}
+
 const syntax = spawnSync(process.execPath, ["--check", fileURLToPath(widgetUrl)], {
   encoding: "utf8",
 });
@@ -23,14 +36,10 @@ if (syntax.status !== 0) {
     syntax.stderr || "SUPER EVA widget JavaScript syntax check failed",
   );
 }
-const modelPolicy = spawnSync(process.execPath, [fileURLToPath(modelPolicyUrl)], {
-  encoding: "utf8",
-});
-if (modelPolicy.status !== 0) {
-  throw new Error(
-    modelPolicy.stderr || modelPolicy.stdout || "EVA chat model policy check failed",
-  );
-}
+
+runLocalGuard(portableWidgetPolicyUrl, "portable widget contract check");
+runLocalGuard(modelPolicyUrl, "EVA chat model policy check");
+
 for (const required of [
   "eva_super_presentation_v1",
   "evavo-avatar://eva-female/v1",
@@ -118,10 +127,11 @@ assert.ok(
 );
 
 console.log("SUPER EVA compatibility presentation contract validated.");
+console.log("- portable Shadow DOM widget contract is validated first through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
-console.log("- GLM-4.7-Flash model policy is enforced through the canonical worker check chain");
-console.log("- Windows and POSIX execute the same local model-policy guard path");
+console.log("- GLM-4.7-Flash and BGE model policy is enforced through the canonical worker check chain");
+console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
