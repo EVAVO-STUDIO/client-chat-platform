@@ -21,10 +21,13 @@ The top-level Worker `check` script remains:
 
 1. portable Shadow DOM widget contract;
 2. GLM/BGE chat-model policy;
-3. stored/admin-projected model truth;
-4. read-only administrator reviewed-model UI truth;
-5. hardened Worker quickstart contract;
-6. reviewed EVAVO recovery seed.
+3. bounded GLM completion-field compatibility policy;
+4. stored/admin-projected model truth;
+5. read-only administrator reviewed-model UI truth;
+6. hardened Worker quickstart contract;
+7. reviewed EVAVO recovery seed.
+
+The bounded completion-field policy preserves the legacy router's established 1,024-token hard maximum while translating its internal `max_tokens` value to Cloudflare's current `max_completion_tokens` field at the active model boundary. Conflicting or oversized completion limits fail closed and embeddings do not pass through this chat-only adapter.
 
 The administrator model UI migration is complete: the console displays the reviewed GLM-4.7-Flash model as server-owned, read-only state and cannot submit arbitrary operator-entered model identifiers.
 
