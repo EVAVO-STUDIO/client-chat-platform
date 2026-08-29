@@ -165,7 +165,7 @@ The reviewed semantic-retrieval embedding fallback is:
 @cf/baai/bge-base-en-v1.5
 ```
 
-Chat generation and embedding inference are admitted separately. A `messages` request is treated as chat generation; a `text` or `texts` request is treated as embedding inference. An unrecognised inference request shape fails closed.
+Chat generation and embedding inference are admitted separately. A `messages` request is treated as chat generation; scalar `text`, provider-documented batch `text: string[]`, or the legacy `texts` form is treated as embedding inference. An unrecognised inference request shape fails closed.
 
 A missing, malformed, retired or currently unapproved chat-model ID resolves to the reviewed GLM fallback. The former `@cf/meta/llama-3.2-3b-instruct` and `@cf/meta/llama-3-8b-instruct` chat fallbacks are retired. An unapproved embedding model resolves to the reviewed BGE embedding model instead of being redirected through the chat model.
 
@@ -304,9 +304,9 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The package `predeploy` hook reruns the complete source, configuration, security, portable-widget/model-policy/SUPER EVA, TypeScript and bundle chain before Wrangler uploads anything.
+The root deploy command delegates to `npm --prefix worker run deploy`. npm then runs the worker package's `predeploy` hook, which reruns the complete source, configuration, security, portable-widget/model-policy/SUPER EVA, TypeScript and bundle chain before the worker package invokes Wrangler.
 
-Direct Wrangler invocation bypasses the npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
+Direct Wrangler invocation bypasses the worker npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
 
 ## 14. Verify the deployed runtime
 
