@@ -34,7 +34,11 @@ If a future internal caller supplies both legacy and current completion fields, 
 - Chat generation authority: none
 - Response-normalisation authority: none
 
-Chat generation and embeddings are separate inference capabilities. `worker/src/runtime.ts` identifies chat calls from a `messages` request and embedding calls from a scalar `text`, batch `text: string[]`, or legacy `texts` request. Cloudflare documents BGE Base v1.5 as batch-capable with `text` accepting either a string or an array of strings. An unrecognised request shape fails closed rather than being sent to an arbitrary model.
+Chat generation and embeddings are separate inference capabilities. `worker/src/runtime.ts` identifies chat calls from a non-empty `messages` request and embedding calls from a scalar `text`, batch `text: string[]`, or legacy `texts` request. Cloudflare documents BGE Base v1.5 as batch-capable with `text` accepting either a string or an array of strings. The EVAVO runtime deliberately admits a narrower application envelope than the provider's general API.
+
+For this repository, an embedding text value must be non-empty and at most **2,000 characters**. An embedding array must contain between 1 and **24 items**, every item must satisfy the same 2,000-character bound, and whitespace-only strings are rejected. The 24-item limit matches the existing retrieval chunk ceiling rather than exposing a general-purpose batching surface.
+
+Ambiguous inference fails closed before model selection. A request cannot mix `messages` with either `text` or `texts`, and it cannot supply both `text` and legacy `texts`. Empty or malformed forms also fail rather than being silently ignored. These character/item ceilings are EVAVO application bounds, not a claim that character count is equivalent to Cloudflare's model-token limit; the provider may still reject an unusually token-dense input.
 
 This distinction is important because a chat allowlist must never redirect an embedding request into a generative LLM. Embedding results pass through unchanged, while only chat-generation results receive the chat response compatibility adapter. Admitting the provider-documented `text: string[]` batch form does not widen the embedding model allowlist or grant chat-generation authority.
 
