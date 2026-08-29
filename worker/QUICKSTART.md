@@ -31,6 +31,21 @@ cmd /c "npm run deploy"
 
 The root command delegates to the worker package. npm runs the worker package's `predeploy` hook (`npm run check`) before Wrangler can publish anything. Do not use a direct `wrangler deploy` command for a routine release.
 
+A Worker code deployment does **not** apply `worker/upsert-evavo.json` to production KV and does not refresh approved knowledge. That mutation remains a separate explicit post-deploy operation:
+
+```powershell
+cd C:\GitRepos\client-chat-platform
+$env:EVAVO_CHAT_WORKER_URL = "https://<reviewed-worker-host>"
+$env:EVAVO_CHAT_ADMIN_TOKEN = "<current-admin-token>"
+$env:EVAVO_CHAT_APPLY_SEED_CONFIRM = "APPLY_EVAVO_REVIEWED_SEED"
+cmd /c "npm run apply:evavo-seed"
+Remove-Item Env:EVAVO_CHAT_ADMIN_TOKEN
+Remove-Item Env:EVAVO_CHAT_APPLY_SEED_CONFIRM
+Remove-Item Env:EVAVO_CHAT_WORKER_URL
+```
+
+Run that only after the deployed runtime has passed its health checks. `npm run deploy` must never invoke the seed-apply command automatically. The apply helper verifies the hardened runtime, saves the reviewed redacted configuration, reads it back, refreshes all approved sources, and fails on partial refresh. See `../DEPLOY.md` for the complete procedure.
+
 ## Local administrator variables
 
 Create an ignored local variable file from the reviewed template:
@@ -59,6 +74,8 @@ Semantic retrieval uses the separately reviewed embedding model:
 ```
 
 The administrator console displays the chat model as read-only. Do not add arbitrary model identifiers to bot configuration. Missing, retired or unapproved model values cannot redirect execution outside the reviewed runtime allowlists.
+
+Every chat provider call also has an explicit bounded completion limit. The reviewed EVAVO configuration uses 320 completion tokens; an unexpected missing internal limit receives the runtime's explicit 512-token fallback; and no admitted value may exceed 1,024. The active model boundary sends Cloudflare's current `max_completion_tokens` field rather than the legacy provider field.
 
 ## Start locally
 
