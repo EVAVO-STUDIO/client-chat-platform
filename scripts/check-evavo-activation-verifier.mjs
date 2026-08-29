@@ -1,15 +1,21 @@
 #!/usr/bin/env node
 
 import assert from "node:assert/strict";
+import { spawnSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const verifierPath = path.join(root, "scripts", "verify-evavo-activation.mjs");
+const orchestratorGuardPath = path.join(
+  root,
+  "scripts",
+  "check-reviewed-evavo-activation-orchestrator.mjs",
+);
 const packagePath = path.join(root, "package.json");
 
-for (const file of [verifierPath, packagePath]) {
+for (const file of [verifierPath, orchestratorGuardPath, packagePath]) {
   const stat = fs.lstatSync(file);
   assert.ok(stat.isFile(), `${file} must be a regular file`);
   assert.ok(!stat.isSymbolicLink(), `${file} must not be a symlink`);
@@ -55,6 +61,18 @@ for (const forbidden of [
   assert.ok(!verifier.includes(forbidden), `activation verifier gained mutation/secret authority: ${forbidden}`);
 }
 
+const orchestratorGuard = spawnSync(process.execPath, [orchestratorGuardPath], {
+  encoding: "utf8",
+  cwd: root,
+});
+if (orchestratorGuard.status !== 0) {
+  throw new Error(
+    orchestratorGuard.stderr ||
+      orchestratorGuard.stdout ||
+      "Windows activation orchestrator guard failed",
+  );
+}
+
 assert.equal(
   pkg.scripts?.["verify:evavo-activation"],
   "node scripts/verify-evavo-activation.mjs",
@@ -85,4 +103,5 @@ console.log("EVAVO read-only activation verifier contract passed.");
 console.log("- approved-origin chat is verified without a bot key");
 console.log("- no-origin server chat remains bot-key protected");
 console.log("- runtime/security contracts, bounded responses and secret redaction are verified");
-console.log("- no admin token, KV mutation, seed apply or deploy authority is present");
+console.log("- Windows activation orchestration safety is validated without executing deployment");
+console.log("- no admin token, KV mutation, seed apply or deploy authority is present in the verifier");
