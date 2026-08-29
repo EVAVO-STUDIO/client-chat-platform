@@ -134,7 +134,9 @@ for (const required of [
   "portable Shadow DOM widget contract",
   "GLM/BGE chat-model policy",
   "stored/admin-projected model truth",
-  "known administrator model-UI migration debt",
+  "read-only administrator reviewed-model UI truth",
+  "The administrator model UI migration is complete",
+  "cannot submit arbitrary operator-entered model identifiers",
   "Do not add those focused checks as new top-level `npm run check` stages",
   "`check:bundle` is a Wrangler no-deploy dry run",
   'cmd /c "npm run deploy"',
@@ -144,6 +146,10 @@ for (const required of [
     `canonical validation-chain documentation missing: ${required}`,
   );
 }
+assert.ok(
+  !validationChain.includes("known administrator model-UI migration debt"),
+  "canonical validation chain still describes completed admin model UI work as debt",
+);
 
 const fakeRuntimeRegression = `${widget}\nconst atlas = \"eva-atlas\";`;
 assert.ok(
@@ -157,7 +163,7 @@ console.log("- portable Shadow DOM widget contract is validated first through th
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
-console.log("- GLM-4.7-Flash/BGE policy, stored-model truth and known admin model UI debt are enforced through the canonical worker check chain");
+console.log("- GLM-4.7-Flash/BGE policy, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
 console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
