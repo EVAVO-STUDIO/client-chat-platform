@@ -5,6 +5,7 @@ export const RUNTIME_STORAGE_BOUNDARY_CONTRACT =
 
 export const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
 
+const REVIEWED_CHAT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const BOT_CONFIG_PREFIX = "cfg:";
 const BOT_CONFIG_INDEX_KEY = "cfg:index";
 const BOT_CONFIG_KEY_PATTERN = /^cfg:[A-Za-z0-9_-]{1,64}$/;
@@ -89,6 +90,7 @@ function scrubRetiredConfigSecrets(config: JsonObject) {
     if (field !== "botKey") delete next[field];
   }
   next.actions = projectedActions(next.actions);
+  next.model = REVIEWED_CHAT_MODEL;
   return next;
 }
 
@@ -387,6 +389,9 @@ export const runtimeStorageBoundaryPosture = Object.freeze({
   upsertBotKeyStatusUsesCommittedMutationReceipt: true,
   postWriteKvReadRequiredForUpsertStatus: false,
   unknownBotKeyStatusAllowedWithoutReceipt: true,
+  reviewedChatModelCanonicalizedOnConfigWrite: true,
+  reviewedChatModelCanonicalizedInAdminProjection: true,
+  reviewedChatModel: REVIEWED_CHAT_MODEL,
   retiredWebhookCredentialsReturned: false,
   retiredWebhookCredentialsPersistedOnUpsert: false,
   rawClientAddressStoredInLegacyRateLimitKey: false,
