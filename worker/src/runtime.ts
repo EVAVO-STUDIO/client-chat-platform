@@ -42,6 +42,31 @@ function effectiveChatModel(value: unknown) {
   return candidate;
 }
 
+function modelTextFromResult(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return "";
+  const result = value as Record<string, unknown>;
+  if (typeof result.response === "string" && result.response.trim()) {
+    return result.response;
+  }
+  const choices = Array.isArray(result.choices) ? result.choices : [];
+  const first = choices[0];
+  if (!first || typeof first !== "object" || Array.isArray(first)) return "";
+  const message = (first as Record<string, unknown>).message;
+  if (!message || typeof message !== "object" || Array.isArray(message)) return "";
+  const content = (message as Record<string, unknown>).content;
+  return typeof content === "string" ? content : "";
+}
+
+function normalizeModelResult(value: unknown) {
+  const text = modelTextFromResult(value);
+  if (!text || !value || typeof value !== "object" || Array.isArray(value)) {
+    return value;
+  }
+  const result = value as Record<string, unknown>;
+  if (typeof result.response === "string" && result.response.trim()) return value;
+  return Object.freeze({ ...result, response: text });
+}
+
 function withoutLegacyAdminHeader(request: Request) {
   if (!request.headers.has(LEGACY_ADMIN_HEADER)) return request;
   const headers = new Headers(request.headers);
@@ -65,12 +90,13 @@ function withModelBoundary(ai: Env["AI"]): Env["AI"] {
             );
           });
           try {
-            return await Promise.race([
+            const providerResult = await Promise.race([
               Promise.resolve(
                 value.call(current, effectiveChatModel(model), ...args),
               ),
               timedOut,
             ]);
+            return normalizeModelResult(providerResult);
           } finally {
             if (timeout !== undefined) clearTimeout(timeout);
           }
@@ -209,6 +235,7 @@ export const activeChatRuntimePosture = Object.freeze({
   retiredModelUsesReviewedFallback: true,
   reviewedFallbackModel: DEFAULT_CHAT_MODEL,
   historicalFallbackAuditToken: LEGACY_FALLBACK_AUDIT_TOKEN,
+  openAiStyleChoiceResponseNormalizedForLegacyRouter: true,
   implicitModelLeadStorageAllowed: false,
   implicitModelLeadIndexReadsAllowed: false,
   explicitVisitorLeadConsentRequired: true,
