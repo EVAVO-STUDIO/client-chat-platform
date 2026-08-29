@@ -21,6 +21,10 @@ assert.equal(
   true,
   "active chat runtime must use GLM-4.7-Flash as its reviewed fallback",
 );
+assert.ok(
+  runtime.includes("const APPROVED_CHAT_MODELS = new Set([DEFAULT_CHAT_MODEL]);"),
+  "active chat runtime must keep configured models inside the reviewed free-plan allowlist",
+);
 
 const retiredStart = runtime.indexOf("const RETIRED_CHAT_MODELS = new Set([");
 const retiredEnd = runtime.indexOf("]);", retiredStart);
@@ -35,6 +39,7 @@ assert.ok(
 );
 
 for (const required of [
+  "!APPROVED_CHAT_MODELS.has(candidate)",
   "function modelTextFromResult(value: unknown)",
   "Array.isArray(result.choices)",
   ".message",
@@ -46,8 +51,10 @@ for (const required of [
   "effectiveChatModel(model)",
   "MODEL_TIMEOUT_MS = 20_000",
   "configuredModelValidatedBeforeProviderCall: true",
+  "configuredModelMustBeReviewedForCurrentFreePlan: true",
   "missingModelUsesReviewedFallback: true",
   "malformedModelUsesReviewedFallback: true",
+  "unapprovedModelUsesReviewedFallback: true",
   "retiredModelUsesReviewedFallback: true",
   "reviewedFallbackModel: DEFAULT_CHAT_MODEL",
   "historicalFallbackAuditToken: LEGACY_FALLBACK_AUDIT_TOKEN",
@@ -73,6 +80,11 @@ assert.ok(
   "reviewed model must be fixed before model selection",
 );
 assert.ok(
+  runtime.indexOf("!APPROVED_CHAT_MODELS.has(candidate)") <
+    runtime.indexOf("return candidate;"),
+  "configured models must pass the reviewed allowlist before provider use",
+);
+assert.ok(
   runtime.indexOf("effectiveChatModel(model)") <
     runtime.indexOf("return normalizeModelResult(providerResult);"),
   "model selection and provider call must precede response normalization",
@@ -94,9 +106,10 @@ for (const forbidden of [
 }
 
 console.log("EVAVO chat model policy passed.");
-console.log(`- reviewed fallback: ${ACTIVE_MODEL}`);
+console.log(`- reviewed fallback and current allowlist: ${ACTIVE_MODEL}`);
+console.log("- unapproved configured models fall back instead of creating accidental paid-model usage");
 console.log("- previous Llama fallbacks are explicitly retired");
 console.log("- OpenAI-style choices[0].message.content is normalized to the legacy response field");
 console.log("- existing top-level response strings pass through unchanged");
-console.log("- configured models remain syntax-validated and bounded by the 20-second provider deadline");
+console.log("- model calls remain bounded by the 20-second provider deadline");
 console.log("- no provider credential, REST endpoint or external fetch authority was added");
