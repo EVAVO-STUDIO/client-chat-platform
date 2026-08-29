@@ -38,8 +38,10 @@ for (const required of [
   'script.getAttribute("data-bot")',
   'host.attachShadow({ mode: "open" })',
   'credentials: "omit"',
-  'redirect: "error"',
   'referrerPolicy: "no-referrer"',
+  'mode: "cors"',
+  'AbortController',
+  'readJsonBounded',
   'POST',
   '/api/leads',
 ]) {
