@@ -20,7 +20,7 @@ The top-level Worker `check` script remains:
 `check:super-eva` is an umbrella compatibility gate. It runs these focused checks before its own SUPER EVA assertions:
 
 1. portable Shadow DOM widget contract;
-2. GLM/BGE chat-model policy;
+2. GLM/BGE chat-model policy v2;
 3. bounded GLM completion-field compatibility policy;
 4. stored/admin-projected model truth;
 5. read-only administrator reviewed-model UI truth;
@@ -28,7 +28,9 @@ The top-level Worker `check` script remains:
 7. reviewed EVAVO recovery seed;
 8. reviewed EVAVO seed apply helper.
 
-The bounded completion-field policy preserves the legacy router's established 1,024-token hard maximum while translating its internal `max_tokens` value to Cloudflare's current `max_completion_tokens` field at the active model boundary. Conflicting or oversized completion limits fail closed and embeddings do not pass through this chat-only adapter.
+The active model-policy authority is `worker/scripts/check-chat-model-policy-v2.mjs`. It validates independent runtime, documentation and deployment capabilities instead of pinning one exact prose sentence. The older `check-chat-model-policy.mjs` remains historical audit evidence and is not invoked by the canonical `check:super-eva` gate.
+
+The bounded completion-field policy preserves the legacy router's established 1,024-token hard maximum while translating its internal `max_tokens` value to Cloudflare's current `max_completion_tokens` field at the active model boundary. A missing internal limit gets an explicit 512-token fallback, conflicting or oversized completion limits fail closed, and embeddings do not pass through this chat-only adapter.
 
 The administrator model UI migration is complete: the console displays the reviewed GLM-4.7-Flash model as server-owned, read-only state and cannot submit arbitrary operator-entered model identifiers.
 
