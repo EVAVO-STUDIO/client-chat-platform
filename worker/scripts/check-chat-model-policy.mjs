@@ -6,8 +6,11 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const workerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+const repositoryRoot = path.resolve(workerRoot, "..");
 const runtimePath = path.join(workerRoot, "src", "runtime.ts");
+const policyPath = path.join(repositoryRoot, "docs", "chat-model-policy.md");
 const runtime = fs.readFileSync(runtimePath, "utf8");
+const policy = fs.readFileSync(policyPath, "utf8");
 
 const ACTIVE_MODEL = "@cf/zai-org/glm-4.7-flash";
 const RETIRED_MODELS = Object.freeze([
@@ -16,6 +19,7 @@ const RETIRED_MODELS = Object.freeze([
 ]);
 
 assert.ok(runtime.length > 0 && !runtime.includes("\r"));
+assert.ok(policy.length > 0 && !policy.includes("\r"));
 assert.equal(
   runtime.includes(`const DEFAULT_CHAT_MODEL = "${ACTIVE_MODEL}";`),
   true,
@@ -61,6 +65,21 @@ for (const required of [
   "openAiStyleChoiceResponseNormalizedForLegacyRouter: true",
 ]) {
   assert.ok(runtime.includes(required), `model boundary missing: ${required}`);
+}
+
+for (const required of [
+  `Runtime model ID: \`${ACTIVE_MODEL}\``,
+  "currently sole approved public-chat model",
+  "20 seconds",
+  "server-owned",
+  "choices[0].message.content",
+  "Do not add a model solely because it is newer",
+  "run the complete canonical worker check before deployment",
+]) {
+  assert.ok(policy.includes(required), `model policy documentation missing: ${required}`);
+}
+for (const model of RETIRED_MODELS) {
+  assert.ok(policy.includes(`\`${model}\``), `policy missing retired model: ${model}`);
 }
 
 for (const forbidden of [
@@ -111,5 +130,6 @@ console.log("- unapproved configured models fall back instead of creating accide
 console.log("- previous Llama fallbacks are explicitly retired");
 console.log("- OpenAI-style choices[0].message.content is normalized to the legacy response field");
 console.log("- existing top-level response strings pass through unchanged");
+console.log("- code and operational model policy are checked together");
 console.log("- model calls remain bounded by the 20-second provider deadline");
 console.log("- no provider credential, REST endpoint or external fetch authority was added");
