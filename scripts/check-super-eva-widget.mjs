@@ -24,6 +24,10 @@ const adminModelTruthUrl = new URL("worker/scripts/check-admin-model-truth.mjs",
 const quickstartPolicyUrl = new URL("worker/scripts/check-worker-quickstart.mjs", root);
 const seedPolicyUrl = new URL("worker/scripts/check-evavo-seed-policy.mjs", root);
 const seedApplyPolicyUrl = new URL("scripts/check-reviewed-evavo-seed-apply.mjs", root);
+const activationVerifierPolicyUrl = new URL(
+  "scripts/check-evavo-activation-verifier.mjs",
+  root,
+);
 const [widget, shared, readme, boundary, validationChain] = await Promise.all([
   readFile(widgetUrl, "utf8"),
   readFile(sharedUrl, "utf8"),
@@ -64,6 +68,10 @@ runLocalGuard(adminModelTruthUrl, "EVA chat admin-model truth check");
 runLocalGuard(quickstartPolicyUrl, "Worker hardened quickstart check");
 runLocalGuard(seedPolicyUrl, "EVAVO reviewed recovery seed check");
 runLocalGuard(seedApplyPolicyUrl, "EVAVO reviewed seed apply helper check");
+runLocalGuard(
+  activationVerifierPolicyUrl,
+  "EVAVO read-only activation verifier check",
+);
 
 for (const required of [
   "eva_super_presentation_v1",
@@ -190,6 +198,7 @@ for (const required of [
   "hardened Worker quickstart contract",
   "reviewed EVAVO recovery seed",
   "reviewed EVAVO seed apply helper",
+  "read-only EVAVO activation verifier",
   "The administrator model UI migration is complete",
   "cannot submit arbitrary operator-entered model identifiers",
   "Do not add those focused checks as new top-level `npm run check` stages",
@@ -214,13 +223,14 @@ assert.ok(
 
 console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- canonical top-level Worker check order is documented separately from nested focused gates");
-console.log("- portable widget, model policy v2, executable inference-boundary behavior, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed and explicit seed-apply helper checks run through the canonical super-eva gate");
+console.log("- portable widget, model policy v2, executable inference-boundary behavior, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed, explicit seed-apply helper and read-only activation verifier checks run through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
 console.log("- animationProfile remains inert shared-contract metadata; profile-driven rendering stays in Avatar Runtime");
 console.log("- GLM-4.7-Flash/BGE policy, bounded inference shapes, bounded current completion fields, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
 console.log("- production seed mutation remains an explicit separate operator action and is never coupled to Worker deploy");
+console.log("- approved EVAVO-origin activation can be verified without granting the verifier a bot key or mutation authority");
 console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
