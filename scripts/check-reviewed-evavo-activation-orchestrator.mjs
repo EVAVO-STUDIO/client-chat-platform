@@ -113,7 +113,7 @@ for (const required of [
   "reviewed EVAVO seed application and complete approved knowledge refresh",
   "read-only deployed activation verification",
   "The script does not call Wrangler directly, modify Git, write Vercel configuration",
-  "first-party website does not need that key",
+  "not required by the first-party EVAVO website",
   "CHAT_API_BASE=<reviewed Worker origin>",
   "EVA_CHAT_UPSTREAM_ENABLED=true",
   "`CHAT_BOT_KEY` should remain unset for the first-party website",
