@@ -24,9 +24,9 @@ The protected configuration boundary also converges stored/admin truth onto the 
 - Chat generation authority: none
 - Response-normalisation authority: none
 
-Chat generation and embeddings are separate inference capabilities. `worker/src/runtime.ts` identifies chat calls from a `messages` request and embedding calls from a `text` or `texts` request. An unrecognised request shape fails closed rather than being sent to an arbitrary model.
+Chat generation and embeddings are separate inference capabilities. `worker/src/runtime.ts` identifies chat calls from a `messages` request and embedding calls from a scalar `text`, batch `text: string[]`, or legacy `texts` request. Cloudflare documents BGE Base v1.5 as batch-capable with `text` accepting either a string or an array of strings. An unrecognised request shape fails closed rather than being sent to an arbitrary model.
 
-This distinction is important because a chat allowlist must never redirect an embedding request into a generative LLM. Embedding results pass through unchanged, while only chat-generation results receive the chat response compatibility adapter.
+This distinction is important because a chat allowlist must never redirect an embedding request into a generative LLM. Embedding results pass through unchanged, while only chat-generation results receive the chat response compatibility adapter. Admitting the provider-documented `text: string[]` batch form does not widen the embedding model allowlist or grant chat-generation authority.
 
 ## Why the allowlists are intentionally narrow
 
