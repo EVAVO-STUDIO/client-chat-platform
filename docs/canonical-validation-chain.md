@@ -22,9 +22,12 @@ The top-level Worker `check` script remains:
 1. portable Shadow DOM widget contract;
 2. GLM/BGE chat-model policy;
 3. stored/admin-projected model truth;
-4. read-only administrator reviewed-model UI truth.
+4. read-only administrator reviewed-model UI truth;
+5. hardened Worker quickstart contract.
 
 The administrator model UI migration is complete: the console displays the reviewed GLM-4.7-Flash model as server-owned, read-only state and cannot submit arbitrary operator-entered model identifiers.
+
+The hardened Worker quickstart is also part of the executable policy surface. It must continue to use the current configuration schema, exact Bearer administration, bounded `messages` chat input, cached-only public knowledge flow, reviewed GLM/BGE ownership, and explicit visitor-approved lead capture. Retired single-message chat examples, direct model-driven lead storage and unguarded deployment commands are forbidden.
 
 The nested arrangement is intentional. Do not add those focused checks as new top-level `npm run check` stages merely for visibility: the exact top-level chain is part of the security contract and should change only through a deliberate audited release.
 
