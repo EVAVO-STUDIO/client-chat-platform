@@ -11,6 +11,10 @@ const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
 const validationChainUrl = new URL("docs/canonical-validation-chain.md", root);
 const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
 const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy-v2.mjs", root);
+const inferenceBoundaryBehaviorUrl = new URL(
+  "worker/scripts/check-model-inference-boundary-behaviour.mjs",
+  root,
+);
 const completionFieldPolicyUrl = new URL(
   "worker/scripts/check-chat-completion-field-policy.mjs",
   root,
@@ -50,6 +54,10 @@ if (syntax.status !== 0) {
 
 runLocalGuard(portableWidgetPolicyUrl, "portable widget contract check");
 runLocalGuard(modelPolicyUrl, "EVA chat model policy v2 check");
+runLocalGuard(
+  inferenceBoundaryBehaviorUrl,
+  "EVA model inference boundary behavior check",
+);
 runLocalGuard(completionFieldPolicyUrl, "EVA chat completion-field policy check");
 runLocalGuard(modelConfigTruthUrl, "EVA chat stored-model truth check");
 runLocalGuard(adminModelTruthUrl, "EVA chat admin-model truth check");
@@ -143,7 +151,8 @@ for (const required of [
   "`npm run check:config-secrets` is invoked automatically by the `precheck:security` npm lifecycle hook",
   "`check:super-eva` is an umbrella compatibility gate",
   "portable Shadow DOM widget contract",
-  "GLM/BGE chat-model policy",
+  "GLM/BGE chat-model policy v2",
+  "model inference boundary behavior",
   "bounded GLM completion-field compatibility policy",
   "stored/admin-projected model truth",
   "read-only administrator reviewed-model UI truth",
@@ -174,11 +183,11 @@ assert.ok(
 
 console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- canonical top-level Worker check order is documented separately from nested focused gates");
-console.log("- portable widget, model policy v2, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed and explicit seed-apply helper checks run through the canonical super-eva gate");
+console.log("- portable widget, model policy v2, executable inference-boundary behavior, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed and explicit seed-apply helper checks run through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
-console.log("- GLM-4.7-Flash/BGE policy, bounded current completion fields, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
+console.log("- GLM-4.7-Flash/BGE policy, bounded inference shapes, bounded current completion fields, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
 console.log("- production seed mutation remains an explicit separate operator action and is never coupled to Worker deploy");
 console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
