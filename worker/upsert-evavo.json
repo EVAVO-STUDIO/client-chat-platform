@@ -1,26 +1,45 @@
-﻿{
+{
   "botId": "evavo",
   "siteName": "EVAVO Studio",
   "contactUrl": "https://evavo.com.au/contact",
-  "tone": "confident, friendly, modern studio voice; concise; high trust; never invent pricing/SLAs",
-  "allowedOrigins": ["https://evavo.com.au", "https://www.evavo.com.au"],
-  "model": "@cf/meta/llama-3-8b-instruct",
-  "maxTokens": 512,
+  "tone": "Concise, direct and specific. Use a warm Australian studio voice without generic greetings, praise or sales filler. Answer the question first. Never invent pricing, timelines, policies, SLAs, compliance claims or client facts.",
+  "allowedOrigins": [
+    "https://evavo.com.au",
+    "https://www.evavo.com.au"
+  ],
+  "model": "@cf/zai-org/glm-4.7-flash",
+  "maxTokens": 320,
+  "maxTurns": 8,
+  "maxCharsPerMessage": 1400,
   "leadMode": "balanced",
   "qualifyingQuestions": [
-    "What are you building (website, app, brand, game, AI)?",
-    "Any references you love (sites, studios, aesthetics)?",
-    "Rough timeline + budget range?"
+    "What are you trying to build or improve?",
+    "Who is it for?",
+    "Are there any important timing or budget constraints?"
   ],
   "ragEnabled": true,
   "ragMode": "simple",
+  "ragMaxUrlsPerRequest": 1,
+  "ragCacheTtlSeconds": 86400,
   "knowledgeUrls": [
     "https://evavo.com.au/services",
     "https://evavo.com.au/work",
-    "https://evavo.com.au/pricing",
+    "https://evavo.com.au/about",
     "https://evavo.com.au/contact"
   ],
-  "rateLimit": { "limit": 12, "windowSeconds": 60 },
-  "dailyBudget": { "maxRequestsPerDay": 300, "maxTokensPerDay": 0 },
-  "actions": { "actionsEnabled": false, "allowedActionTypes": ["none"] }
+  "rateLimit": {
+    "limit": 5,
+    "windowSeconds": 60
+  },
+  "dailyBudget": {
+    "maxRequestsPerDay": 45,
+    "maxTokensPerDay": 45000
+  },
+  "actions": {
+    "actionsEnabled": true,
+    "allowedActionTypes": [
+      "open_contact",
+      "create_lead"
+    ]
+  }
 }
