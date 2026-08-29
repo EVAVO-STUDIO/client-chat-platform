@@ -30,11 +30,13 @@ The nested arrangement is intentional. Do not add those focused checks as new to
 
 `check:bundle` is a Wrangler no-deploy dry run. The canonical check must not publish the Worker, read provider credentials from source, or substitute a deployment for validation.
 
-Normal production deployment remains the guarded root lifecycle command:
+Normal production deployment remains the guarded root command:
 
 ```powershell
 cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The root `predeploy` lifecycle reruns the canonical Worker validation before Wrangler uploads the active `worker/src/runtime.ts` entrypoint.
+The root `deploy` script delegates to `npm --prefix worker run deploy`. npm then executes the worker package's `predeploy` lifecycle automatically; worker `predeploy` is exactly `npm run check`. Only after that complete validation chain succeeds does the worker `deploy` script run `wrangler deploy -c wrangler.jsonc` against the active `worker/src/runtime.ts` entrypoint.
+
+The security contract pins all three links in that lifecycle: root delegation, worker `predeploy`, and the final Wrangler deploy command. Do not replace the root deploy script with a direct Wrangler invocation.
