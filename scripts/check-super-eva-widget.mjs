@@ -128,7 +128,7 @@ for (const prohibited of [
 const animationProfileOccurrences = widget.match(/animationProfile/g) ?? [];
 assert.equal(
   animationProfileOccurrences.length,
-  3,
+  4,
   "SUPER EVA animationProfile metadata surface changed; review Avatar Runtime ownership before updating this guard",
 );
 for (const required of [
