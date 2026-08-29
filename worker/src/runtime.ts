@@ -17,6 +17,7 @@ export const ACTIVE_CHAT_RUNTIME_CONTRACT =
   "client_chat_active_runtime_v2" as const;
 
 const DEFAULT_CHAT_MODEL = "@cf/zai-org/glm-4.7-flash";
+const APPROVED_CHAT_MODELS = new Set([DEFAULT_CHAT_MODEL]);
 const RETIRED_CHAT_MODELS = new Set([
   "@cf/meta/llama-3.2-3b-instruct",
   "@cf/meta/llama-3-8b-instruct",
@@ -35,7 +36,8 @@ function effectiveChatModel(value: unknown) {
   if (
     !candidate ||
     !MODEL_PATTERN.test(candidate) ||
-    RETIRED_CHAT_MODELS.has(candidate)
+    RETIRED_CHAT_MODELS.has(candidate) ||
+    !APPROVED_CHAT_MODELS.has(candidate)
   ) {
     return DEFAULT_CHAT_MODEL;
   }
@@ -229,9 +231,11 @@ export const activeChatRuntimePosture = Object.freeze({
   legacyAdminHeaderRemovedBeforeRouting: true,
   exactBearerAuthenticationRemainsRequired: true,
   configuredModelValidatedBeforeProviderCall: true,
+  configuredModelMustBeReviewedForCurrentFreePlan: true,
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
   missingModelUsesReviewedFallback: true,
   malformedModelUsesReviewedFallback: true,
+  unapprovedModelUsesReviewedFallback: true,
   retiredModelUsesReviewedFallback: true,
   reviewedFallbackModel: DEFAULT_CHAT_MODEL,
   historicalFallbackAuditToken: LEGACY_FALLBACK_AUDIT_TOKEN,
