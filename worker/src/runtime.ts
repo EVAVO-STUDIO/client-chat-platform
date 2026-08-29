@@ -30,6 +30,7 @@ const MODEL_PATTERN = /^@cf\/[A-Za-z0-9._/-]{1,120}$/;
 const MODEL_TIMEOUT_MS = 20_000;
 const MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000;
 const MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000;
+const MODEL_CHAT_MAX_COMPLETION_TOKENS = 1_024;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
 const LEAD_ROUTE = "/api/leads";
@@ -129,6 +130,34 @@ function boundedSystemContent(source: string, maximum: number): string {
     : ANSWER_QUALITY_POLICY;
 }
 
+function boundedCompletionTokens(value: unknown): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value < 1 ||
+    value > MODEL_CHAT_MAX_COMPLETION_TOKENS
+  ) {
+    throw new Error("model_chat_completion_limit_not_approved");
+  }
+  return value;
+}
+
+function withCurrentChatCompletionField(
+  request: Record<string, unknown>,
+): Record<string, unknown> {
+  const legacy = boundedCompletionTokens(request.max_tokens);
+  const current = boundedCompletionTokens(request.max_completion_tokens);
+  if (legacy !== undefined && current !== undefined && legacy !== current) {
+    throw new Error("model_chat_completion_limit_ambiguous");
+  }
+  const selected = current ?? legacy;
+  const { max_tokens: _legacyMaxTokens, ...rest } = request;
+  return selected === undefined
+    ? rest
+    : { ...rest, max_completion_tokens: selected };
+}
+
 function withAnswerQualityPolicy(args: readonly unknown[]) {
   const request = firstModelArgument(args);
   if (!request || !Array.isArray(request.messages)) return [...args];
@@ -183,7 +212,8 @@ function withAnswerQualityPolicy(args: readonly unknown[]) {
   if (totalMessageCharacters(messages) > MODEL_CHAT_MAX_TOTAL_INPUT_CHARS) {
     throw new Error("model_chat_input_limit_exceeded");
   }
-  return [{ ...request, messages }, ...args.slice(1)];
+  const currentRequest = withCurrentChatCompletionField(request);
+  return [{ ...currentRequest, messages }, ...args.slice(1)];
 }
 
 function modelTextFromResult(value: unknown) {
@@ -389,6 +419,9 @@ export const activeChatRuntimePosture = Object.freeze({
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
   chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS,
   chatTotalInputCharacterLimit: MODEL_CHAT_MAX_TOTAL_INPUT_CHARS,
+  chatMaxCompletionTokens: MODEL_CHAT_MAX_COMPLETION_TOKENS,
+  legacyMaxTokensTranslatedToCurrentCompletionField: true,
+  ambiguousCompletionLimitsFailClosed: true,
   qualityPolicyConsumesExistingInputBudget: true,
   oldestHistoryMayBeDroppedBeforeRaisingInputCeiling: true,
   missingModelUsesReviewedFallback: true,
