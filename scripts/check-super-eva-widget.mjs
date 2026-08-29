@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import { spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
 
 const root = new URL("../", import.meta.url);
 const widgetUrl = new URL("widget/super-eva-embed.js", root);
@@ -14,7 +15,7 @@ const [widget, shared, readme, boundary] = await Promise.all([
   readFile(readmeUrl, "utf8"),
   readFile(boundaryUrl, "utf8"),
 ]);
-const syntax = spawnSync(process.execPath, ["--check", widgetUrl.pathname], {
+const syntax = spawnSync(process.execPath, ["--check", fileURLToPath(widgetUrl)], {
   encoding: "utf8",
 });
 if (syntax.status !== 0) {
@@ -22,7 +23,7 @@ if (syntax.status !== 0) {
     syntax.stderr || "SUPER EVA widget JavaScript syntax check failed",
   );
 }
-const modelPolicy = spawnSync(process.execPath, [modelPolicyUrl.pathname], {
+const modelPolicy = spawnSync(process.execPath, [fileURLToPath(modelPolicyUrl)], {
   encoding: "utf8",
 });
 if (modelPolicy.status !== 0) {
@@ -121,5 +122,6 @@ console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
 console.log("- GLM-4.7-Flash model policy is enforced through the canonical worker check chain");
+console.log("- Windows and POSIX execute the same local model-policy guard path");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
