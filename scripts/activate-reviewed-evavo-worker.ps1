@@ -55,7 +55,8 @@ try {
 
     $WorkerUrl = Require-Env 'EVAVO_CHAT_WORKER_URL'
     $AdminToken = Require-Env 'EVAVO_CHAT_ADMIN_TOKEN'
-    if ($AdminToken -match '\s' -or $AdminToken.Length -lt 16 -or $AdminToken.Length -gt 256) {
+    $AdminTokenBytes = [Text.Encoding]::UTF8.GetByteCount($AdminToken)
+    if ($AdminToken -match '\s' -or $AdminTokenBytes -lt 16 -or $AdminTokenBytes -gt 256) {
         Fail 'EVAVO_CHAT_ADMIN_TOKEN_INVALID'
     }
 
@@ -65,14 +66,8 @@ try {
     Invoke-Checked 'EVAVO_CHAT_DEPLOY' @('npm', 'run', 'deploy')
 
     Write-Host '- phase 2/3: reviewed EVAVO seed and knowledge refresh'
-    $PreviousSeedConfirmation = [Environment]::GetEnvironmentVariable('EVAVO_CHAT_APPLY_SEED_CONFIRM', 'Process')
-    try {
-        [Environment]::SetEnvironmentVariable('EVAVO_CHAT_APPLY_SEED_CONFIRM', $SeedConfirmation, 'Process')
-        Invoke-Checked 'EVAVO_CHAT_SEED_APPLY' @('npm', 'run', 'apply:evavo-seed')
-    }
-    finally {
-        [Environment]::SetEnvironmentVariable('EVAVO_CHAT_APPLY_SEED_CONFIRM', $PreviousSeedConfirmation, 'Process')
-    }
+    [Environment]::SetEnvironmentVariable('EVAVO_CHAT_APPLY_SEED_CONFIRM', $SeedConfirmation, 'Process')
+    Invoke-Checked 'EVAVO_CHAT_SEED_APPLY' @('npm', 'run', 'apply:evavo-seed')
 
     Write-Host '- phase 3/3: read-only deployed activation verification'
     Invoke-Checked 'EVAVO_CHAT_ACTIVATION_VERIFY' @('npm', 'run', 'verify:evavo-activation')
@@ -86,9 +81,12 @@ try {
     Write-Host 'EVAVO reviewed Worker activation completed.'
     Write-Host '- deployment, reviewed seed/cache and read-only activation verification succeeded'
     Write-Host '- first-party approved-origin chat was verified without a bot-key credential'
-    Write-Host '- administrator token was not printed and remains process-local'
+    Write-Host '- activation credentials are being cleared from this PowerShell process'
 }
 finally {
     Remove-Item Env:EVAVO_CHAT_APPLY_SEED_CONFIRM -ErrorAction SilentlyContinue
+    Remove-Item Env:EVAVO_CHAT_ACTIVATE_CONFIRM -ErrorAction SilentlyContinue
+    Remove-Item Env:EVAVO_CHAT_ADMIN_TOKEN -ErrorAction SilentlyContinue
+    Remove-Item Env:EVAVO_CHAT_WORKER_URL -ErrorAction SilentlyContinue
     Pop-Location
 }
