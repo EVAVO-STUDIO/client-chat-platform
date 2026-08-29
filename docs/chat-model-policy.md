@@ -13,7 +13,9 @@ The public chat runtime uses a deliberately small model policy rather than accep
 - Provider-call deadline: 20 seconds
 - Public-chat model selection: server-owned
 
-The runtime still accepts a stored `model` field for backwards-compatible configuration parsing, but a configured chat model reaches Workers AI only when it is in the runtime's explicit reviewed allowlist. Missing, malformed, retired and unapproved values fall back to the reviewed default.
+The runtime retains the historical `model` field for backwards-compatible configuration parsing, but public chat execution is server-owned. Missing, malformed, retired and unapproved model choices cannot redirect generation away from the reviewed allowlist.
+
+The protected configuration boundary also converges stored/admin truth onto the reviewed model. Existing records containing an older or unapproved model may still be read for compatibility, but `/admin/get` projects the reviewed GLM model and the next protected configuration save persists that same model. A syntactically invalid model value is still rejected by the hardened admin parser before storage. This prevents a configuration screen from claiming one model while execution silently uses another.
 
 ## Current reviewed embedding model
 
