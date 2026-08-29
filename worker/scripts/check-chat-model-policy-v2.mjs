@@ -28,6 +28,7 @@ function forbidAll(label, source, tokens) {
 }
 
 const runtime = read("src/runtime.ts");
+const inferenceBoundary = read("src/modelInferenceBoundary.ts");
 const policy = read("docs/chat-model-policy.md", repositoryRoot);
 const deploy = read("DEPLOY.md", repositoryRoot);
 const rootPackage = JSON.parse(read("package.json", repositoryRoot));
@@ -37,29 +38,19 @@ const CHAT_MODEL = "@cf/zai-org/glm-4.7-flash";
 const EMBEDDING_MODEL = "@cf/baai/bge-base-en-v1.5";
 
 requireAll("runtime model policy", runtime, [
+  'from "./modelInferenceBoundary"',
+  "classifyModelInferenceKind",
+  "MODEL_EMBEDDING_MAX_BATCH_ITEMS",
+  "MODEL_EMBEDDING_MAX_TEXT_CHARS",
+  "type ModelInferenceKind",
   `const DEFAULT_CHAT_MODEL = "${CHAT_MODEL}";`,
   "const APPROVED_CHAT_MODELS = new Set([DEFAULT_CHAT_MODEL]);",
   `const DEFAULT_EMBEDDING_MODEL = "${EMBEDDING_MODEL}";`,
   "const APPROVED_EMBEDDING_MODELS = new Set([DEFAULT_EMBEDDING_MODEL]);",
   '"@cf/meta/llama-3.2-3b-instruct"',
   '"@cf/meta/llama-3-8b-instruct"',
-  'type InferenceKind = "chat" | "embedding"',
-  "const MODEL_EMBEDDING_MAX_TEXT_CHARS = 2_000;",
-  "const MODEL_EMBEDDING_MAX_BATCH_ITEMS = 24;",
-  "function embeddingTextAllowed(value: unknown): value is string",
-  "value.trim().length > 0",
-  "value.length <= MODEL_EMBEDDING_MAX_TEXT_CHARS",
-  "function embeddingTextArrayAllowed(value: unknown): value is string[]",
-  "value.length <= MODEL_EMBEDDING_MAX_BATCH_ITEMS",
-  "value.every(embeddingTextAllowed)",
-  "function inferenceKind(args: readonly unknown[]): InferenceKind",
-  'Object.prototype.hasOwnProperty.call(request, "messages")',
-  'Object.prototype.hasOwnProperty.call(request, "text")',
-  'Object.prototype.hasOwnProperty.call(request, "texts")',
-  "Array.isArray(request.messages) && request.messages.length > 0",
-  'throw new Error("model_request_shape_ambiguous")',
-  'throw new Error("model_request_shape_not_approved")',
-  "function effectiveProviderModel(value: unknown, kind: InferenceKind)",
+  "function effectiveProviderModel(value: unknown, kind: ModelInferenceKind)",
+  "const kind = classifyModelInferenceKind(args);",
   "MODEL_TIMEOUT_MS = 20_000",
   "MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000",
   "MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000",
@@ -95,25 +86,44 @@ forbidAll("active runtime provider authority", runtime, [
   "AI_GATEWAY_TOKEN",
   "process.env",
   "env.AI.run(",
+  "function inferenceKind(",
+  "function embeddingTextAllowed(",
+  "function embeddingTextArrayAllowed(",
 ]);
 
-const inferenceStart = runtime.indexOf("function embeddingTextAllowed");
-const inferenceEnd = runtime.indexOf("function configuredModel", inferenceStart);
-assert.ok(inferenceStart >= 0 && inferenceEnd > inferenceStart);
-const inference = runtime.slice(inferenceStart, inferenceEnd);
-requireAll("inference classifier", inference, [
-  "MODEL_EMBEDDING_MAX_TEXT_CHARS",
-  "MODEL_EMBEDDING_MAX_BATCH_ITEMS",
-  "embeddingTextAllowed",
-  "embeddingTextArrayAllowed",
-  "hasMessages && !chatRequested",
+requireAll("pure inference boundary", inferenceBoundary, [
+  'export type ModelInferenceKind = "chat" | "embedding"',
+  "export const MODEL_EMBEDDING_MAX_TEXT_CHARS = 2_000;",
+  "export const MODEL_EMBEDDING_MAX_BATCH_ITEMS = 24;",
+  "function embeddingTextAllowed(value: unknown): value is string",
+  "value.trim().length > 0",
+  "value.length <= MODEL_EMBEDDING_MAX_TEXT_CHARS",
+  "function embeddingTextArrayAllowed(value: unknown): value is string[]",
+  "value.length <= MODEL_EMBEDDING_MAX_BATCH_ITEMS",
+  "value.every(embeddingTextAllowed)",
+  "export function classifyModelInferenceKind(",
+  'Object.prototype.hasOwnProperty.call(request, "messages")',
+  'Object.prototype.hasOwnProperty.call(request, "text")',
+  'Object.prototype.hasOwnProperty.call(request, "texts")',
+  "Array.isArray(request.messages) && request.messages.length > 0",
   "chatRequested && (hasText || hasTexts)",
   "hasText && hasTexts",
-  "embeddingTextAllowed(request.text)",
-  "embeddingTextArrayAllowed(request.text)",
-  "embeddingTextArrayAllowed(request.texts)",
+  'throw new Error("model_request_shape_ambiguous")',
+  'throw new Error("model_request_shape_not_approved")',
+  'contract: "client_chat_model_inference_boundary_v1"',
+  "providerAuthority: false",
+  "networkAuthority: false",
+  "storageAuthority: false",
 ]);
-forbidAll("inference classifier", inference, [
+forbidAll("pure inference boundary authority", inferenceBoundary, [
+  "fetch(",
+  "process.env",
+  "env.AI",
+  "KVNamespace",
+  "localStorage",
+  "sessionStorage",
+  "document.cookie",
+  "@cf/",
   "request.image",
   "request.audio",
   "request.prompt",
@@ -124,10 +134,10 @@ forbidAll("inference classifier", inference, [
 ]);
 
 const qualityStart = runtime.indexOf("const ANSWER_QUALITY_POLICY = [");
-const qualityEnd = runtime.indexOf('type InferenceKind = "chat" | "embedding"', qualityStart);
-assert.ok(qualityStart >= 0 && qualityEnd > qualityStart);
+const qualityEnd = runtime.indexOf("function firstModelArgument", qualityStart);
+assert.ok(qualityStart >= 0 && qualityEnd > qualityStart, "answer-quality policy block is missing");
 const quality = runtime.slice(qualityStart, qualityEnd);
-forbidAll("answer-quality policy", quality, [
+forbidAll("answer-quality policy authority", quality, [
   "fetch(",
   "process.env",
   "localStorage",
@@ -137,7 +147,7 @@ forbidAll("answer-quality policy", quality, [
 
 const completionStart = runtime.indexOf("function boundedCompletionTokens");
 const completionEnd = runtime.indexOf("function withAnswerQualityPolicy", completionStart);
-assert.ok(completionStart >= 0 && completionEnd > completionStart);
+assert.ok(completionStart >= 0 && completionEnd > completionStart, "completion adapter is missing");
 const completion = runtime.slice(completionStart, completionEnd);
 requireAll("completion adapter", completion, [
   "MODEL_CHAT_MAX_COMPLETION_TOKENS",
@@ -150,7 +160,7 @@ requireAll("completion adapter", completion, [
   "const { max_tokens: _legacyMaxTokens, ...rest } = request;",
   "max_completion_tokens: selected",
 ]);
-forbidAll("completion adapter", completion, [
+forbidAll("completion adapter authority", completion, [
   "fetch(",
   "process.env",
   "MODEL_CHAT_MAX_COMPLETION_TOKENS = 2_048",
@@ -165,13 +175,14 @@ requireAll("model policy documentation", policy, [
   "Chat generation and embeddings are separate inference capabilities",
   "2,000 characters",
   "24 items",
-  "ambiguous inference",
+  "Ambiguous inference fails closed",
   "Answer quality contract",
   "maximum system content: **30,000 characters**",
   "maximum total chat message content: **75,000 characters**",
   "max_completion_tokens",
   "same 1,024-token hard ceiling",
   "explicit 512-token fallback",
+  "check-chat-model-policy-v2.mjs",
   "run the complete canonical worker check before deployment",
 ]);
 
@@ -183,7 +194,7 @@ requireAll("deployment runbook", deploy, [
   "provider-documented batch `text: string[]`",
   "2,000 characters",
   "24 items",
-  "ambiguous inference",
+  "ambiguous inference shape also fails closed",
   "An unrecognised inference request shape fails closed",
   "20-second runtime timeout",
   "30,000-character system and 75,000-character total-input ceilings",
@@ -203,6 +214,7 @@ requireAll("deployment runbook", deploy, [
   "worker package's `predeploy` hook",
   "Direct Wrangler invocation bypasses the worker npm `predeploy` gate",
   "A Worker code deployment does **not** automatically rewrite the `evavo` bot configuration",
+  "check-chat-model-policy-v2.mjs",
   "## 16. Apply and verify the reviewed EVAVO seed",
   'cmd /c "npm run apply:evavo-seed"',
   "`npm run deploy` must never invoke this operation automatically",
@@ -227,10 +239,10 @@ assert.equal(workerPackage.scripts?.deploy, "wrangler deploy -c wrangler.jsonc")
 console.log("EVAVO chat model policy v2 passed.");
 console.log(`- reviewed chat model remains ${CHAT_MODEL}`);
 console.log(`- reviewed embedding model remains ${EMBEDDING_MODEL}`);
+console.log("- one pure authority-free module owns chat-vs-embedding request classification");
 console.log("- embedding admission is limited to non-empty bounded strings, max 2,000 characters each and max 24 items");
 console.log("- chat/embedding and text/texts ambiguity fail closed before model selection");
-console.log("- model allowlists and response normalization remain separated");
+console.log("- runtime does not retain a duplicate inference classifier");
 console.log("- answer quality remains bounded and authority-free");
-console.log("- every chat provider call has an explicit 320/configured, 512 fallback or <=1024 admitted completion cap");
-console.log("- the runbook is validated by independent capabilities rather than one exact prose sentence");
+console.log("- every chat provider call has an explicit configured, 512 fallback or <=1024 admitted completion cap");
 console.log("- deploy remains separate from explicit reviewed EVAVO seed mutation");
