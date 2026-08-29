@@ -28,6 +28,8 @@ const LEGACY_FALLBACK_AUDIT_TOKEN =
   'DEFAULT_CHAT_MODEL = "@cf/meta/llama-3.2-3b-instruct"';
 const MODEL_PATTERN = /^@cf\/[A-Za-z0-9._/-]{1,120}$/;
 const MODEL_TIMEOUT_MS = 20_000;
+const MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000;
+const MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
 const LEAD_ROUTE = "/api/leads";
@@ -96,6 +98,35 @@ function effectiveProviderModel(value: unknown, kind: InferenceKind) {
     : effectiveEmbeddingModel(value);
 }
 
+function messageContentLength(value: unknown): number {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return 0;
+  const content = (value as Record<string, unknown>).content;
+  return typeof content === "string" ? content.length : 0;
+}
+
+function totalMessageCharacters(messages: readonly unknown[]): number {
+  return messages.reduce(
+    (total, message) => total + messageContentLength(message),
+    0,
+  );
+}
+
+function boundedSystemContent(source: string, maximum: number): string {
+  const separator = "\n\n";
+  const minimum = ANSWER_QUALITY_POLICY.length;
+  if (maximum < minimum) {
+    throw new Error("answer_quality_policy_capacity_exceeded");
+  }
+  const availableSource = Math.max(
+    0,
+    maximum - ANSWER_QUALITY_POLICY.length - separator.length,
+  );
+  const prefix = source.trim().slice(0, availableSource);
+  return prefix
+    ? `${prefix}${separator}${ANSWER_QUALITY_POLICY}`
+    : ANSWER_QUALITY_POLICY;
+}
+
 function withAnswerQualityPolicy(args: readonly unknown[]) {
   const request = firstModelArgument(args);
   if (!request || !Array.isArray(request.messages)) return [...args];
@@ -104,7 +135,7 @@ function withAnswerQualityPolicy(args: readonly unknown[]) {
       ? { ...(entry as Record<string, unknown>) }
       : entry,
   );
-  const systemIndex = messages.findIndex(
+  let systemIndex = messages.findIndex(
     (entry) =>
       entry &&
       typeof entry === "object" &&
@@ -112,14 +143,43 @@ function withAnswerQualityPolicy(args: readonly unknown[]) {
       (entry as Record<string, unknown>).role === "system" &&
       typeof (entry as Record<string, unknown>).content === "string",
   );
-  if (systemIndex >= 0) {
+  if (systemIndex < 0) {
+    messages.unshift({ role: "system", content: "" });
+    systemIndex = 0;
+  }
+
+  while (messages.length > 2) {
     const system = messages[systemIndex] as Record<string, unknown>;
-    messages[systemIndex] = {
-      ...system,
-      content: `${String(system.content).trim()}\n\n${ANSWER_QUALITY_POLICY}`,
-    };
-  } else {
-    messages.unshift({ role: "system", content: ANSWER_QUALITY_POLICY });
+    const otherCharacters =
+      totalMessageCharacters(messages) - messageContentLength(system);
+    const maximumSystem = Math.min(
+      MODEL_CHAT_MAX_SYSTEM_CHARS,
+      MODEL_CHAT_MAX_TOTAL_INPUT_CHARS - otherCharacters,
+    );
+    if (maximumSystem >= ANSWER_QUALITY_POLICY.length) break;
+
+    const removableIndex = messages.findIndex(
+      (entry, index) => index !== systemIndex && index < messages.length - 1,
+    );
+    if (removableIndex < 0) break;
+    messages.splice(removableIndex, 1);
+    if (removableIndex < systemIndex) systemIndex -= 1;
+  }
+
+  const system = messages[systemIndex] as Record<string, unknown>;
+  const otherCharacters =
+    totalMessageCharacters(messages) - messageContentLength(system);
+  const maximumSystem = Math.min(
+    MODEL_CHAT_MAX_SYSTEM_CHARS,
+    MODEL_CHAT_MAX_TOTAL_INPUT_CHARS - otherCharacters,
+  );
+  messages[systemIndex] = {
+    ...system,
+    content: boundedSystemContent(String(system.content ?? ""), maximumSystem),
+  };
+
+  if (totalMessageCharacters(messages) > MODEL_CHAT_MAX_TOTAL_INPUT_CHARS) {
+    throw new Error("model_chat_input_limit_exceeded");
   }
   return [{ ...request, messages }, ...args.slice(1)];
 }
@@ -324,6 +384,10 @@ export const activeChatRuntimePosture = Object.freeze({
   chatAndEmbeddingInferenceAreSeparatelyAdmitted: true,
   unrecognisedInferenceShapeFailsClosed: true,
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
+  chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS,
+  chatTotalInputCharacterLimit: MODEL_CHAT_MAX_TOTAL_INPUT_CHARS,
+  qualityPolicyConsumesExistingInputBudget: true,
+  oldestHistoryMayBeDroppedBeforeRaisingInputCeiling: true,
   missingModelUsesReviewedFallback: true,
   malformedModelUsesReviewedFallback: true,
   unapprovedModelUsesReviewedFallback: true,
