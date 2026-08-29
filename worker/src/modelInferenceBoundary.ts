@@ -3,11 +3,32 @@ export type ModelInferenceKind = "chat" | "embedding";
 export const MODEL_EMBEDDING_MAX_TEXT_CHARS = 2_000;
 export const MODEL_EMBEDDING_MAX_BATCH_ITEMS = 24;
 
+const CHAT_ROLES = new Set(["system", "user", "assistant"]);
+
 function firstModelArgument(args: readonly unknown[]) {
   const value = args[0];
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
+}
+
+function chatMessageAllowed(value: unknown) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return false;
+  const message = value as Record<string, unknown>;
+  return (
+    typeof message.role === "string" &&
+    CHAT_ROLES.has(message.role) &&
+    typeof message.content === "string" &&
+    message.content.trim().length > 0
+  );
+}
+
+function chatMessagesAllowed(value: unknown) {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.every(chatMessageAllowed)
+  );
 }
 
 function embeddingTextAllowed(value: unknown): value is string {
@@ -36,8 +57,7 @@ export function classifyModelInferenceKind(
   const hasMessages = Object.prototype.hasOwnProperty.call(request, "messages");
   const hasText = Object.prototype.hasOwnProperty.call(request, "text");
   const hasTexts = Object.prototype.hasOwnProperty.call(request, "texts");
-  const chatRequested =
-    Array.isArray(request.messages) && request.messages.length > 0;
+  const chatRequested = chatMessagesAllowed(request.messages);
 
   if (hasMessages && !chatRequested) {
     throw new Error("model_request_shape_not_approved");
@@ -68,6 +88,7 @@ export function classifyModelInferenceKind(
 export const modelInferenceBoundaryPosture = Object.freeze({
   contract: "client_chat_model_inference_boundary_v1" as const,
   chatMessagesMustBeNonEmpty: true,
+  chatMessagesMustUseReviewedRolesAndNonEmptyText: true,
   embeddingTextMaximumCharacters: MODEL_EMBEDDING_MAX_TEXT_CHARS,
   embeddingBatchMaximumItems: MODEL_EMBEDDING_MAX_BATCH_ITEMS,
   embeddingBatchItemsMustBeBoundedStrings: true,
