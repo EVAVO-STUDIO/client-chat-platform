@@ -8,6 +8,7 @@
     "check": "npm --prefix worker run check",
     "typecheck": "npm --prefix worker run typecheck",
     "deploy": "npm --prefix worker run deploy",
+    "apply:evavo-seed": "node scripts/apply-reviewed-evavo-seed.mjs",
     "tail": "npm --prefix worker run tail",
     "whoami": "npm --prefix worker run whoami"
   }
