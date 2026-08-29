@@ -17,6 +17,12 @@ The runtime retains the historical `model` field for backwards-compatible config
 
 The protected configuration boundary also converges stored/admin truth onto the reviewed model. Existing records containing an older or unapproved model may still be read for compatibility, but `/admin/get` projects the reviewed GLM model and the next protected configuration save persists that same model. A syntactically invalid model value is still rejected by the hardened admin parser before storage. This prevents a configuration screen from claiming one model while execution silently uses another.
 
+### Output-token parameter compatibility
+
+The historical router currently sends its bounded completion limit as `max_tokens`. Cloudflare's current GLM-4.7-Flash schema still accepts `max_tokens`, but marks it deprecated in favor of `max_completion_tokens`. The existing 64–1,024 token validation therefore remains effective today.
+
+A future patch-safe runtime change should translate the already-bounded legacy `max_tokens` value to `max_completion_tokens` at the model boundary without changing the configured ceiling or exposing another operator-controlled provider field. Do not increase the 1,024-token maximum as part of that compatibility migration, and do not duplicate both fields in a way that leaves precedence ambiguous.
+
 ## Current reviewed embedding model
 
 - Runtime model ID: `@cf/baai/bge-base-en-v1.5`
