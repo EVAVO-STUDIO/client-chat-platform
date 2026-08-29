@@ -19,9 +19,11 @@ The protected configuration boundary also converges stored/admin truth onto the 
 
 ### Output-token parameter compatibility
 
-The historical router still computes its completion budget through the established `maxTokens` configuration and passes that internal value as `max_tokens`. Configuration defaults to 512 tokens and the legacy router retains its 64–1,024 validation range with a global maximum of 1,024.
+The historical router still computes its completion budget through the established `maxTokens` configuration and passes that internal value as `max_tokens`. Configuration defaults to 512 tokens and the legacy router retains its 64–1,024 validation range with a global maximum of 1,024. The reviewed EVAVO seed is tighter again at 320 tokens.
 
 At the active model boundary, `worker/src/runtime.ts` now translates that already-bounded legacy value to Cloudflare's current `max_completion_tokens` field. The adapter removes the deprecated `max_tokens` field before provider execution and preserves the same 1,024-token hard ceiling; it does not add another operator-controlled output budget or raise the existing allowance.
+
+Every chat provider call receives an explicit completion limit. A missing internal completion limit does not defer to a provider default: the runtime supplies an explicit 512-token fallback, while a supplied admitted value such as EVAVO's 320-token configuration is preserved unchanged.
 
 If a future internal caller supplies both legacy and current completion fields, both values are independently admitted against the same ceiling and conflicting legacy/current completion limits fail closed. Invalid, non-integer, zero, negative or greater-than-1,024 values also fail before provider execution. This keeps the compatibility migration unambiguous and cost-bounded while allowing the legacy application router to remain unchanged.
 
