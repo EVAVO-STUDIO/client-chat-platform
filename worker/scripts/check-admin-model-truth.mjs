@@ -65,12 +65,13 @@ assert.ok(
 );
 
 for (const required of [
-  "Protected config writes now canonicalize the stored `model` field",
-  "sanitized administrator projections also report that reviewed model",
+  "protected configuration boundary also converges stored/admin truth onto the reviewed model",
+  "`/admin/get` projects the reviewed GLM model",
+  "next protected configuration save persists that same model",
   REVIEWED_MODEL,
 ]) {
   assert.ok(
-    policy.includes(required),
+    policy.toLowerCase().includes(required.toLowerCase()),
     `model policy missing stored-model truth rule: ${required}`,
   );
 }
