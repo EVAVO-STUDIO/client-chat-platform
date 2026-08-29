@@ -18,9 +18,17 @@ for (const required of [
   'cmd /c "npm run deploy"',
   "worker package's `predeploy` hook (`npm run check`)",
   "Do not use a direct `wrangler deploy` command for a routine release",
+  "A Worker code deployment does **not** apply `worker/upsert-evavo.json`",
+  'cmd /c "npm run apply:evavo-seed"',
+  "`npm run deploy` must never invoke the seed-apply command automatically",
+  "APPLY_EVAVO_REVIEWED_SEED",
   "@cf/zai-org/glm-4.7-flash",
   "@cf/baai/bge-base-en-v1.5",
   "administrator console displays the chat model as read-only",
+  "reviewed EVAVO configuration uses 320 completion tokens",
+  "explicit 512-token fallback",
+  "no admitted value may exceed 1,024",
+  "max_completion_tokens",
   'Authorization = "Bearer $ADMIN"',
   'allowedOrigins = @(',
   'tone = "Calm, concise, practical and specific.',
@@ -52,13 +60,17 @@ for (const prohibited of [
   "localStorage",
   "sessionStorage",
   "wrangler deploy -c wrangler.jsonc",
+  "max_completion_tokens = 2048",
+  "deploy && npm run apply:evavo-seed",
 ]) {
   assert.ok(!quickstart.includes(prohibited), `worker quickstart retained stale or unsafe guidance: ${prohibited}`);
 }
 
 console.log("Worker hardened quickstart contract passed.");
 console.log("- active runtime and guarded root-to-worker deployment lifecycle are explicit");
+console.log("- Worker deploy and reviewed EVAVO seed activation remain separate operator actions");
 console.log("- reviewed GLM/BGE model ownership and read-only admin model state are documented");
+console.log("- every chat call has an explicit bounded completion field and provider defaults are not relied upon");
 console.log("- examples use current schema fields and exact Bearer administration");
 console.log("- public chat uses bounded messages and cached-only knowledge");
 console.log("- visitor follow-up remains explicit-consent only; retired single-message/direct-lead guidance is absent");
