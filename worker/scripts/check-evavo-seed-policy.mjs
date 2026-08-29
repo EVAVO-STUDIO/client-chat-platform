@@ -77,6 +77,9 @@ for (const required of [
   "SLAs",
   "compliance claims",
   "client facts",
+  "Only mention pages or links that are present in supplied knowledge or configured contact information",
+  "Never claim a lead, message or personal detail was saved, sent or shared",
+  "follow-up requires an explicit visitor-controlled action",
 ]) {
   assert.ok(seed.tone.includes(required), `EVAVO seed tone missing: ${required}`);
 }
@@ -88,6 +91,8 @@ for (const forbidden of [
   "webhook",
   "temperature",
   "systemPrompt",
+  "we saved your details",
+  "your message has been sent",
 ]) {
   assert.ok(!raw.includes(forbidden), `EVAVO seed retained stale or unsafe material: ${forbidden}`);
 }
@@ -101,5 +106,7 @@ console.log("EVAVO reviewed seed policy passed.");
 console.log("- recovery seed uses GLM-4.7-Flash and the current bounded chat defaults");
 console.log("- public knowledge URLs point only at current EVAVO pages");
 console.log("- request/token budgets are explicit rather than unlimited");
+console.log("- source/link wording is evidence-bound and cannot invent navigation targets");
+console.log("- model text cannot claim follow-up data was saved, sent or shared");
 console.log("- contact/follow-up actions remain available only through the hardened consent boundary");
 console.log("- retired Llama, pricing-page, webhook and legacy prompt fields remain absent");
