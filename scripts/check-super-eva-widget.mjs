@@ -8,15 +8,17 @@ const widgetUrl = new URL("widget/super-eva-embed.js", root);
 const sharedUrl = new URL("shared/superEvaPresentation.ts", root);
 const readmeUrl = new URL("widget/README.md", root);
 const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
+const validationChainUrl = new URL("docs/canonical-validation-chain.md", root);
 const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
 const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
 const modelConfigTruthUrl = new URL("worker/scripts/check-chat-model-config-truth.mjs", root);
 const adminModelTruthUrl = new URL("worker/scripts/check-admin-model-truth.mjs", root);
-const [widget, shared, readme, boundary] = await Promise.all([
+const [widget, shared, readme, boundary, validationChain] = await Promise.all([
   readFile(widgetUrl, "utf8"),
   readFile(sharedUrl, "utf8"),
   readFile(readmeUrl, "utf8"),
   readFile(boundaryUrl, "utf8"),
+  readFile(validationChainUrl, "utf8"),
 ]);
 
 function runLocalGuard(url, label) {
@@ -124,6 +126,25 @@ assert.ok(
   "SUPER EVA compatibility widget was promoted as the canonical production embed",
 );
 
+for (const required of [
+  "# Canonical Worker validation chain",
+  'cmd /c "npm run check"',
+  "`npm run check:config-secrets` is invoked automatically by the `precheck:security` npm lifecycle hook",
+  "`check:super-eva` is an umbrella compatibility gate",
+  "portable Shadow DOM widget contract",
+  "GLM/BGE chat-model policy",
+  "stored/admin-projected model truth",
+  "known administrator model-UI migration debt",
+  "Do not add those focused checks as new top-level `npm run check` stages",
+  "`check:bundle` is a Wrangler no-deploy dry run",
+  'cmd /c "npm run deploy"',
+]) {
+  assert.ok(
+    validationChain.includes(required),
+    `canonical validation-chain documentation missing: ${required}`,
+  );
+}
+
 const fakeRuntimeRegression = `${widget}\nconst atlas = \"eva-atlas\";`;
 assert.ok(
   /atlas(?:es)?/iu.test(fakeRuntimeRegression),
@@ -131,6 +152,7 @@ assert.ok(
 );
 
 console.log("SUPER EVA compatibility presentation contract validated.");
+console.log("- canonical top-level Worker check order is documented separately from nested focused gates");
 console.log("- portable Shadow DOM widget contract is validated first through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
