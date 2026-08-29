@@ -11,6 +11,7 @@ const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
 const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
 const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
 const modelConfigTruthUrl = new URL("worker/scripts/check-chat-model-config-truth.mjs", root);
+const adminModelTruthUrl = new URL("worker/scripts/check-admin-model-truth.mjs", root);
 const [widget, shared, readme, boundary] = await Promise.all([
   readFile(widgetUrl, "utf8"),
   readFile(sharedUrl, "utf8"),
@@ -41,6 +42,7 @@ if (syntax.status !== 0) {
 runLocalGuard(portableWidgetPolicyUrl, "portable widget contract check");
 runLocalGuard(modelPolicyUrl, "EVA chat model policy check");
 runLocalGuard(modelConfigTruthUrl, "EVA chat stored-model truth check");
+runLocalGuard(adminModelTruthUrl, "EVA chat admin-model truth check");
 
 for (const required of [
   "eva_super_presentation_v1",
@@ -133,7 +135,7 @@ console.log("- portable Shadow DOM widget contract is validated first through th
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
-console.log("- GLM-4.7-Flash/BGE policy and stored-model truth are enforced through the canonical worker check chain");
+console.log("- GLM-4.7-Flash/BGE policy, stored-model truth and known admin model UI debt are enforced through the canonical worker check chain");
 console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
