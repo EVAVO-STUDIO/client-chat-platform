@@ -7,12 +7,20 @@ import { fileURLToPath } from "node:url";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const scriptPath = path.join(root, "scripts", "activate-reviewed-evavo-worker.ps1");
+const docsPath = path.join(root, "docs", "reviewed-evavo-worker-activation.md");
 const source = fs.readFileSync(scriptPath, "utf8");
-const stat = fs.lstatSync(scriptPath);
+const docs = fs.readFileSync(docsPath, "utf8");
 
-assert.ok(stat.isFile(), "activation orchestrator must be a regular file");
-assert.ok(!stat.isSymbolicLink(), "activation orchestrator must not be a symlink");
+for (const [file, label] of [
+  [scriptPath, "activation orchestrator"],
+  [docsPath, "activation runbook"],
+]) {
+  const stat = fs.lstatSync(file);
+  assert.ok(stat.isFile(), `${label} must be a regular file`);
+  assert.ok(!stat.isSymbolicLink(), `${label} must not be a symlink`);
+}
 assert.ok(source.length > 0 && !source.includes("\r"), "activation orchestrator must be LF-only");
+assert.ok(docs.length > 0 && !docs.includes("\r"), "activation runbook must be LF-only");
 
 for (const required of [
   "[ValidatePattern('^[0-9a-f]{40}$')]",
@@ -95,6 +103,33 @@ for (const token of [
   assert.ok(source.indexOf(token, cleanupIndex) > cleanupIndex, `activation cleanup missing ${token}`);
 }
 
+for (const required of [
+  "# Reviewed EVAVO Worker activation on Windows",
+  ".\\scripts\\activate-reviewed-evavo-worker.ps1 -ExpectedSha $ExpectedSha",
+  '$env:EVAVO_CHAT_ACTIVATE_CONFIRM = "DEPLOY_AND_ACTIVATE_REVIEWED_EVAVO"',
+  '$env:EVAVO_CHAT_WORKER_URL = "https://<reviewed-worker-host>"',
+  '$env:EVAVO_CHAT_ADMIN_TOKEN = "<current-admin-token>"',
+  "guarded root `npm run deploy` lifecycle",
+  "reviewed EVAVO seed application and complete approved knowledge refresh",
+  "read-only deployed activation verification",
+  "The script does not call Wrangler directly, modify Git, write Vercel configuration",
+  "first-party website does not need that key",
+  "CHAT_API_BASE=<reviewed Worker origin>",
+  "EVA_CHAT_UPSTREAM_ENABLED=true",
+  "`CHAT_BOT_KEY` should remain unset for the first-party website",
+]) {
+  assert.ok(docs.includes(required), `activation runbook missing: ${required}`);
+}
+for (const forbidden of [
+  "actual Worker hostname:",
+  "actual admin token:",
+  "ADMIN_TOKEN=sk-",
+  "EVAVO_CHAT_ADMIN_TOKEN=sk-",
+  "EVAVO_CHAT_ADMIN_TOKEN=eyJ",
+]) {
+  assert.ok(!docs.includes(forbidden), `activation runbook contains forbidden credential material: ${forbidden}`);
+}
+
 console.log("EVAVO Windows activation orchestrator contract passed.");
 console.log("- exact SHA, main branch, clean checkout and explicit confirmation are required before deployment");
 console.log("- deployment uses only the canonical npm lifecycle");
@@ -102,3 +137,4 @@ console.log("- reviewed seed/cache mutation follows deployment and read-only ver
 console.log("- no direct Wrangler, Git mutation, HTTP shortcut or embedded credential authority is present");
 console.log("- administrator token uses the same UTF-8 byte bounds as the seed helper");
 console.log("- activation credentials are removed from the PowerShell process on success or failure");
+console.log("- the Windows runbook is bound to the same reviewed workflow and keyless first-party website posture");
