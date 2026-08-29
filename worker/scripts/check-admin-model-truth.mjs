@@ -64,17 +64,34 @@ for (const required of [
   assert.ok(migration.includes(required), `admin model UI migration contract missing: ${required}`);
 }
 
-// The server boundary is authoritative today. Until the admin surface is made
-// read-only for model choice, its stale placeholder must remain explicit test
-// debt rather than being mistaken for a supported model selection path.
-assert.ok(
-  admin.includes(`placeholder="${RETIRED_MODEL}"`),
-  "admin model field changed without updating the reviewed admin-model truth contract",
-);
-assert.ok(
-  admin.includes('model: text("model") || undefined'),
-  "admin still needs an explicit reviewed-model UI migration before model choice can be removed",
-);
+for (const required of [
+  "Reviewed chat model",
+  `value="${REVIEWED_MODEL}"`,
+  'readonly aria-readonly="true"',
+  "Server-owned reviewed policy.",
+  `const REVIEWED_CHAT_MODEL = "${REVIEWED_MODEL}";`,
+  "model: REVIEWED_CHAT_MODEL,",
+  'setText("model", REVIEWED_CHAT_MODEL);',
+  'credentials: "omit"',
+  "Authorization: `Bearer ${token}`",
+]) {
+  assert.ok(admin.includes(required), `admin reviewed-model UI missing: ${required}`);
+}
+
+for (const forbidden of [
+  RETIRED_MODEL,
+  'model: text("model") || undefined',
+  'setText("model", config.model)',
+  'placeholder="@cf/',
+]) {
+  assert.ok(!admin.includes(forbidden), `admin still exposes arbitrary or retired model authority: ${forbidden}`);
+}
+
+const modelInput = admin.match(/<input id="model"[^>]*>/u)?.[0] ?? "";
+assert.ok(modelInput, "reviewed model input is missing");
+assert.ok(modelInput.includes("readonly"), "reviewed model input must stay read-only");
+assert.ok(modelInput.includes(REVIEWED_MODEL), "reviewed model input must display the canonical GLM model");
+assert.ok(!modelInput.includes("placeholder="), "reviewed model input must not imply a selectable model placeholder");
 
 for (const forbidden of [
   "CLOUDFLARE_API_TOKEN",
@@ -87,6 +104,7 @@ for (const forbidden of [
 }
 
 console.log("EVAVO admin model truth contract passed.");
-console.log(`- protected storage and admin projections are canonicalized to ${REVIEWED_MODEL}`);
-console.log("- server-side model policy remains authoritative regardless of stale form input");
-console.log("- the remaining operator-UI model field is explicit migration debt with a reviewed read-only target contract");
+console.log(`- protected storage, admin projections and operator UI are canonicalized to ${REVIEWED_MODEL}`);
+console.log("- the model field is read-only and cannot grant arbitrary operator model-selection authority");
+console.log("- save and load paths preserve the reviewed model while Bearer auth and credentials-omit behavior remain intact");
+console.log("- the retired Llama placeholder and arbitrary model payload path are absent");
