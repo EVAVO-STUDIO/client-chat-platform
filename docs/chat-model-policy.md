@@ -19,9 +19,11 @@ The protected configuration boundary also converges stored/admin truth onto the 
 
 ### Output-token parameter compatibility
 
-The historical router currently sends its bounded completion limit as `max_tokens`. Cloudflare's current GLM-4.7-Flash schema still accepts `max_tokens`, but marks it deprecated in favor of `max_completion_tokens`. The existing 64–1,024 token validation therefore remains effective today.
+The historical router still computes its completion budget through the established `maxTokens` configuration and passes that internal value as `max_tokens`. Configuration defaults to 512 tokens and the legacy router retains its 64–1,024 validation range with a global maximum of 1,024.
 
-A future patch-safe runtime change should translate the already-bounded legacy `max_tokens` value to `max_completion_tokens` at the model boundary without changing the configured ceiling or exposing another operator-controlled provider field. Do not increase the 1,024-token maximum as part of that compatibility migration, and do not duplicate both fields in a way that leaves precedence ambiguous.
+At the active model boundary, `worker/src/runtime.ts` now translates that already-bounded legacy value to Cloudflare's current `max_completion_tokens` field. The adapter removes the deprecated `max_tokens` field before provider execution and preserves the same 1,024-token hard ceiling; it does not add another operator-controlled output budget or raise the existing allowance.
+
+If a future internal caller supplies both legacy and current completion fields, both values are independently admitted against the same ceiling and conflicting legacy/current completion limits fail closed. Invalid, non-integer, zero, negative or greater-than-1,024 values also fail before provider execution. This keeps the compatibility migration unambiguous and cost-bounded while allowing the legacy application router to remain unchanged.
 
 ## Current reviewed embedding model
 
@@ -103,7 +105,7 @@ Before adding another model to either reviewed allowlist:
 5. for chat models, confirm the synchronous response is handled by the runtime response adapter;
 6. for embedding models, confirm its result can pass through unchanged to the existing retrieval code;
 7. confirm the model does not require a new credential, external network request or billing integration;
-8. update `worker/scripts/check-chat-model-policy.mjs` in the same change;
+8. update `worker/scripts/check-chat-model-policy.mjs` and any focused compatibility guard in the same change;
 9. run the complete canonical worker check before deployment;
 10. deploy through the guarded Wrangler path only after the check is green.
 
