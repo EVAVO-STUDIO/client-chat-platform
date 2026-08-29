@@ -167,7 +167,9 @@ The reviewed semantic-retrieval embedding fallback is:
 @cf/baai/bge-base-en-v1.5
 ```
 
-Chat generation and embedding inference are admitted separately. A `messages` request is treated as chat generation; scalar `text`, provider-documented batch `text: string[]`, or the legacy `texts` form is treated as embedding inference. An unrecognised inference request shape fails closed.
+Chat generation and embedding inference are admitted separately. A non-empty `messages` request is treated as chat generation; scalar `text`, provider-documented batch `text: string[]`, or the legacy `texts` form is treated as embedding inference. An unrecognised inference request shape fails closed.
+
+EVAVO deliberately admits a narrower embedding envelope than Cloudflare's general model API. Each embedding string must be non-empty and no more than **2,000 characters**. An embedding array may contain 1 to **24 items**, and every item must satisfy the same bound. Whitespace-only values are rejected. Any ambiguous inference shape also fails closed: chat `messages` cannot be mixed with `text` or `texts`, and a request cannot supply both `text` and legacy `texts`. These are application-level character/item limits rather than a claim that character count equals the provider's token limit.
 
 A missing, malformed, retired or currently unapproved chat-model ID resolves to the reviewed GLM fallback. The former `@cf/meta/llama-3.2-3b-instruct` and `@cf/meta/llama-3-8b-instruct` chat fallbacks are retired. An unapproved embedding model resolves to the reviewed BGE embedding model instead of being redirected through the chat model.
 
@@ -183,7 +185,7 @@ Invalid, non-integer, zero, negative, oversized or conflicting legacy/current co
 
 The answer-quality policy applies only to chat generation. It remains inside the existing 30,000-character system and 75,000-character total-input ceilings; older history is reduced before those ceilings can be exceeded.
 
-The fallback does not rewrite KV. Resave old records through the current admin console, or apply the reviewed EVAVO seed through the explicit post-deploy procedure below, so stored configuration truthfully describes runtime behaviour. Do not add a new model merely because its `@cf/...` identifier is syntactically valid; it must be reviewed and admitted in `worker/src/runtime.ts`, `worker/scripts/check-chat-model-policy.mjs` and `docs/chat-model-policy.md` together.
+The fallback does not rewrite KV. Resave old records through the current admin console, or apply the reviewed EVAVO seed through the explicit post-deploy procedure below, so stored configuration truthfully describes runtime behaviour. Do not add a new model merely because its `@cf/...` identifier is syntactically valid; it must be reviewed and admitted in `worker/src/runtime.ts`, `worker/scripts/check-chat-model-policy-v2.mjs` and `docs/chat-model-policy.md` together.
 
 ## 9. EVAVO Workers AI cost envelope
 
