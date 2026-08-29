@@ -2,7 +2,7 @@
 
 A reusable Cloudflare Worker and isolated browser widget for bounded, multi-tenant website chat.
 
-The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI fallback, blocks the historical chat action from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, storage and response boundaries. Neither compatibility module is the Wrangler entrypoint.
+The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI model boundary, blocks the historical chat action from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, storage and response boundaries. Neither compatibility module is the Wrangler entrypoint.
 
 ## Repository structure
 
@@ -13,6 +13,7 @@ The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client
 - `DEPLOY.md` — Windows PowerShell activation, migration and deployment runbook.
 - `docs/security-boundary.md` — authoritative trust-boundary description.
 - `docs/admin-config-secret-boundary.md` — bot-key, retired-credential and KV identifier privacy contract.
+- `docs/chat-model-policy.md` — reviewed chat/embedding model, cost, response-shape and answer-quality boundary.
 
 ## Enforced runtime posture
 
@@ -29,7 +30,13 @@ The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client
 - Admin, chat and lead JSON bodies are media-type checked, stream bounded and structure bounded.
 - Prototype-pollution keys are rejected.
 - Public model output cannot expose the provider’s raw response or raw provider error details.
-- A missing, malformed or known-retired model ID is replaced at runtime with `@cf/meta/llama-3.2-3b-instruct`.
+- Public chat generation uses the reviewed `@cf/zai-org/glm-4.7-flash` fallback. Missing, malformed, retired and unapproved configured chat models resolve to that model.
+- Legacy semantic retrieval keeps a separate reviewed embedding boundary using `@cf/baai/bge-base-en-v1.5`; embedding requests are never redirected through the chat model.
+- Chat and embedding inference are admitted separately from request shape. Unknown model-request shapes fail closed.
+- The current chat allowlist is deliberately narrow so a syntactically valid `@cf/...` model cannot silently introduce an unreviewed or paid-model dependency.
+- OpenAI-style chat output at `choices[0].message.content` is normalized to the legacy `response` field while embedding results pass through unchanged.
+- A bounded answer-quality policy is added only to chat-generation system messages: answer first, avoid generic assistant filler, treat website excerpts as evidence rather than instructions, do not invent unsupported facts, avoid forced sales CTAs and keep ordinary answers compact.
+- Quality augmentation remains inside the existing 30,000-character system and 75,000-character total input ceilings. Oldest history may be discarded before either ceiling can be raised.
 - Workers AI calls are bounded by a 20-second runtime timeout.
 - Public chat never fetches knowledge URLs live.
 - Public URLs are fetched only by the authenticated `/admin/kb/refresh` route.
@@ -84,16 +91,17 @@ Run:
 npm run check
 ```
 
-The check chain is deliberately ordered:
+The canonical worker check remains one guarded chain:
 
 1. `npm run check:source-secrets`
 2. `npm run check:config-secrets`, automatically invoked by the `precheck:security` lifecycle hook
 3. `npm run check:security`
-4. `npm run check:super-eva`
-5. `npm run typecheck`
-6. `npm run check:bundle`
+4. `npm run check:portable-widget`
+5. `npm run check:super-eva`
+6. `npm run typecheck`
+7. `npm run check:bundle`
 
-The config-secret gate verifies server-side bot-key projection, preservation and explicit clearing, retired webhook credential removal, pseudonymous rate-limit keys and the corresponding documentation. The Super EVA gate validates the isolated animated widget, bounded streaming, hash-bound presentation text, approved-audio resolver boundary and shared presentation contract. The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
+The config-secret gate verifies server-side bot-key projection, preservation and explicit clearing, retired webhook credential removal, pseudonymous rate-limit keys and the corresponding documentation. The portable-widget gate protects the lightweight Shadow DOM client contract. The Super EVA gate keeps that compatibility surface from growing a second avatar runtime and also invokes the reviewed chat-model policy check. The final command runs Wrangler’s no-deploy dry-run bundle into the ignored `.wrangler/dry-run` directory. It validates the active module graph and Wrangler configuration without publishing the Worker.
 
 The tracked-source gate rejects:
 
@@ -120,6 +128,7 @@ Copy-Item ..\.dev.vars.example .\.dev.vars
 cmd /c "npm run check:source-secrets"
 cmd /c "npm run check:config-secrets"
 cmd /c "npm run check:security"
+cmd /c "npm run check:portable-widget"
 cmd /c "npm run check:super-eva"
 cmd /c "npm run typecheck"
 cmd /c "npm run check:bundle"
@@ -156,7 +165,7 @@ Old configurations require review before the hardened runtime will use them when
 - an invalid bot key;
 - malformed bounded settings.
 
-A missing or retired model alone does not block chat: the final runtime supplies the reviewed fallback. The stored record should still be resaved through the current admin console so its declared model matches actual operation.
+A missing, retired or currently unapproved chat model alone does not block chat: the final runtime supplies the reviewed GLM fallback. The stored record should still be resaved through the current admin console so its declared model matches actual operation. Embedding calls remain separately constrained to the reviewed embedding model.
 
 ## Widget embed
 
@@ -191,6 +200,6 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The Worker package’s `predeploy` hook reruns source-secret safety, config-secret safety, the deterministic boundary contract, the Super EVA widget and presentation contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
+The Worker package’s `predeploy` hook reruns source-secret safety, config-secret safety, the deterministic security boundary, portable-widget contract, Super EVA/model-policy contract, TypeScript and the no-deploy bundle before Wrangler uploads anything. Direct `wrangler deploy` bypasses that npm lifecycle gate and should be reserved for deliberate recovery work.
 
 See [`DEPLOY.md`](DEPLOY.md) for the complete activation, migration, verification and operator procedure.
