@@ -2,7 +2,7 @@
   "botId": "evavo",
   "siteName": "EVAVO Studio",
   "contactUrl": "https://evavo.com.au/contact",
-  "tone": "Concise, direct and specific. Use a warm Australian studio voice without generic greetings, praise or sales filler. Answer the question first. Never invent pricing, timelines, policies, SLAs, compliance claims or client facts.",
+  "tone": "Concise, direct and specific. Use a warm Australian studio voice without generic greetings, praise or sales filler. Answer the question first. Never invent pricing, timelines, policies, SLAs, compliance claims or client facts. Only mention pages or links that are present in supplied knowledge or configured contact information. Never claim a lead, message or personal detail was saved, sent or shared just because the model produced text; follow-up requires an explicit visitor-controlled action.",
   "allowedOrigins": [
     "https://evavo.com.au",
     "https://www.evavo.com.au"
