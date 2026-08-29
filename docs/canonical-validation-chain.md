@@ -21,14 +21,17 @@ The top-level Worker `check` script remains:
 
 1. portable Shadow DOM widget contract;
 2. GLM/BGE chat-model policy v2;
-3. bounded GLM completion-field compatibility policy;
-4. stored/admin-projected model truth;
-5. read-only administrator reviewed-model UI truth;
-6. hardened Worker quickstart contract;
-7. reviewed EVAVO recovery seed;
-8. reviewed EVAVO seed apply helper.
+3. model inference boundary behavior;
+4. bounded GLM completion-field compatibility policy;
+5. stored/admin-projected model truth;
+6. read-only administrator reviewed-model UI truth;
+7. hardened Worker quickstart contract;
+8. reviewed EVAVO recovery seed;
+9. reviewed EVAVO seed apply helper.
 
-The active model-policy authority is `worker/scripts/check-chat-model-policy-v2.mjs`. It validates independent runtime, documentation and deployment capabilities instead of pinning one exact prose sentence. The older `check-chat-model-policy.mjs` remains historical audit evidence and is not invoked by the canonical `check:super-eva` gate.
+The active model-policy authority is `worker/scripts/check-chat-model-policy-v2.mjs`. It validates independent runtime, inference-boundary, documentation and deployment capabilities instead of pinning one exact prose sentence. The older `check-chat-model-policy.mjs` remains historical audit evidence and is not invoked by the canonical `check:super-eva` gate.
+
+The model inference boundary behavior check transpiles and executes the real authority-free `src/modelInferenceBoundary.ts` module. It verifies non-empty chat input, bounded scalar/batch embedding input, malformed and oversized rejection, and fail-closed chat/embedding plus `text`/`texts` ambiguity. The classifier has no provider, network or storage authority and `runtime.ts` must not retain a second independent classifier.
 
 The bounded completion-field policy preserves the legacy router's established 1,024-token hard maximum while translating its internal `max_tokens` value to Cloudflare's current `max_completion_tokens` field at the active model boundary. A missing internal limit gets an explicit 512-token fallback, conflicting or oversized completion limits fail closed, and embeddings do not pass through this chat-only adapter.
 
