@@ -7,6 +7,7 @@ const widgetUrl = new URL("widget/super-eva-embed.js", root);
 const sharedUrl = new URL("shared/superEvaPresentation.ts", root);
 const readmeUrl = new URL("widget/README.md", root);
 const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
+const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
 const [widget, shared, readme, boundary] = await Promise.all([
   readFile(widgetUrl, "utf8"),
   readFile(sharedUrl, "utf8"),
@@ -19,6 +20,14 @@ const syntax = spawnSync(process.execPath, ["--check", widgetUrl.pathname], {
 if (syntax.status !== 0) {
   throw new Error(
     syntax.stderr || "SUPER EVA widget JavaScript syntax check failed",
+  );
+}
+const modelPolicy = spawnSync(process.execPath, [modelPolicyUrl.pathname], {
+  encoding: "utf8",
+});
+if (modelPolicy.status !== 0) {
+  throw new Error(
+    modelPolicy.stderr || modelPolicy.stdout || "EVA chat model policy check failed",
   );
 }
 for (const required of [
@@ -111,5 +120,6 @@ console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
+console.log("- GLM-4.7-Flash model policy is enforced through the canonical worker check chain");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
