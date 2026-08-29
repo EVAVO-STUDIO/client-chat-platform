@@ -10,7 +10,7 @@ const readmeUrl = new URL("widget/README.md", root);
 const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
 const validationChainUrl = new URL("docs/canonical-validation-chain.md", root);
 const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
-const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
+const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy-v2.mjs", root);
 const completionFieldPolicyUrl = new URL(
   "worker/scripts/check-chat-completion-field-policy.mjs",
   root,
@@ -49,7 +49,7 @@ if (syntax.status !== 0) {
 }
 
 runLocalGuard(portableWidgetPolicyUrl, "portable widget contract check");
-runLocalGuard(modelPolicyUrl, "EVA chat model policy check");
+runLocalGuard(modelPolicyUrl, "EVA chat model policy v2 check");
 runLocalGuard(completionFieldPolicyUrl, "EVA chat completion-field policy check");
 runLocalGuard(modelConfigTruthUrl, "EVA chat stored-model truth check");
 runLocalGuard(adminModelTruthUrl, "EVA chat admin-model truth check");
@@ -174,7 +174,7 @@ assert.ok(
 
 console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- canonical top-level Worker check order is documented separately from nested focused gates");
-console.log("- portable widget, model policy, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed and explicit seed-apply helper checks run through the canonical super-eva gate");
+console.log("- portable widget, model policy v2, bounded completion-field policy, config truth, admin model truth, hardened quickstart, reviewed EVAVO seed and explicit seed-apply helper checks run through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
