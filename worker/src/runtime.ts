@@ -32,6 +32,8 @@ const MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000;
 const MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000;
 const MODEL_CHAT_DEFAULT_COMPLETION_TOKENS = 512;
 const MODEL_CHAT_MAX_COMPLETION_TOKENS = 1_024;
+const MODEL_EMBEDDING_MAX_TEXT_CHARS = 2_000;
+const MODEL_EMBEDDING_MAX_BATCH_ITEMS = 24;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
 const LEAD_ROUTE = "/api/leads";
@@ -58,16 +60,41 @@ function firstModelArgument(args: readonly unknown[]) {
     : null;
 }
 
+function embeddingTextAllowed(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    value.length > 0 &&
+    value.length <= MODEL_EMBEDDING_MAX_TEXT_CHARS
+  );
+}
+
+function embeddingTextArrayAllowed(value: unknown): value is string[] {
+  return (
+    Array.isArray(value) &&
+    value.length > 0 &&
+    value.length <= MODEL_EMBEDDING_MAX_BATCH_ITEMS &&
+    value.every(embeddingTextAllowed)
+  );
+}
+
 function inferenceKind(args: readonly unknown[]): InferenceKind {
   const request = firstModelArgument(args);
-  if (request && Array.isArray(request.messages)) return "chat";
-  if (
-    request &&
-    (typeof request.text === "string" ||
-      Array.isArray(request.text) ||
-      Array.isArray(request.texts))
-  ) {
-    return "embedding";
+  if (!request) throw new Error("model_request_shape_not_approved");
+
+  const chatRequested = Array.isArray(request.messages);
+  const scalarText = embeddingTextAllowed(request.text);
+  const textBatch = embeddingTextArrayAllowed(request.text);
+  const legacyTextsBatch = embeddingTextArrayAllowed(request.texts);
+  const embeddingFormCount =
+    Number(scalarText) + Number(textBatch) + Number(legacyTextsBatch);
+
+  if (chatRequested && embeddingFormCount > 0) {
+    throw new Error("model_request_shape_ambiguous");
+  }
+  if (chatRequested) return "chat";
+  if (embeddingFormCount === 1) return "embedding";
+  if (embeddingFormCount > 1) {
+    throw new Error("model_request_shape_ambiguous");
   }
   throw new Error("model_request_shape_not_approved");
 }
@@ -414,6 +441,10 @@ export const activeChatRuntimePosture = Object.freeze({
   configuredModelMustBeReviewedForCurrentFreePlan: true,
   chatAndEmbeddingInferenceAreSeparatelyAdmitted: true,
   embeddingTextArrayBatchShapeApproved: true,
+  embeddingTextMaximumCharacters: MODEL_EMBEDDING_MAX_TEXT_CHARS,
+  embeddingBatchMaximumItems: MODEL_EMBEDDING_MAX_BATCH_ITEMS,
+  embeddingBatchItemsMustBeBoundedStrings: true,
+  ambiguousInferenceShapeFailsClosed: true,
   unrecognisedInferenceShapeFailsClosed: true,
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
   chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS,
