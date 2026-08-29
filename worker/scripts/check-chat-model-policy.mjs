@@ -41,7 +41,9 @@ for (const required of [
   'type InferenceKind = "chat" | "embedding"',
   "function inferenceKind(args: readonly unknown[]): InferenceKind",
   "Array.isArray(request.messages)",
-  'typeof request.text === "string" || Array.isArray(request.texts)',
+  'typeof request.text === "string"',
+  "Array.isArray(request.text)",
+  "Array.isArray(request.texts)",
   'throw new Error("model_request_shape_not_approved")',
   "function effectiveProviderModel(value: unknown, kind: InferenceKind)",
   "function withAnswerQualityPolicy(args: readonly unknown[])",
@@ -70,6 +72,7 @@ for (const required of [
   "configuredModelValidatedBeforeProviderCall: true",
   "configuredModelMustBeReviewedForCurrentFreePlan: true",
   "chatAndEmbeddingInferenceAreSeparatelyAdmitted: true",
+  "embeddingTextArrayBatchShapeApproved: true",
   "unrecognisedInferenceShapeFailsClosed: true",
   "chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS",
   "chatTotalInputCharacterLimit: MODEL_CHAT_MAX_TOTAL_INPUT_CHARS",
@@ -86,6 +89,8 @@ for (const required of [
   `Runtime model ID: \`${ACTIVE_MODEL}\``,
   `Runtime model ID: \`${EMBEDDING_MODEL}\``,
   "Chat generation and embeddings are separate inference capabilities",
+  "batch `text: string[]`",
+  "Cloudflare documents BGE Base v1.5 as batch-capable",
   "An unrecognised request shape fails closed",
   "Answer quality contract",
   "answer the user's actual question",
@@ -124,6 +129,23 @@ assert.ok(runtime.indexOf("withAnswerQualityPolicy(args)") < runtime.indexOf("ef
 assert.ok(runtime.indexOf("MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000") < runtime.indexOf("function withAnswerQualityPolicy"), "chat quality policy must inherit the fixed system ceiling");
 assert.ok(runtime.indexOf("MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000") < runtime.indexOf("function withAnswerQualityPolicy"), "chat quality policy must inherit the fixed total input ceiling");
 
+const inferenceStart = runtime.indexOf("function inferenceKind");
+const inferenceEnd = runtime.indexOf("function configuredModel", inferenceStart);
+assert.ok(inferenceStart >= 0 && inferenceEnd > inferenceStart, "inference shape classifier is missing");
+const inference = runtime.slice(inferenceStart, inferenceEnd);
+for (const required of [
+  "Array.isArray(request.messages)",
+  'typeof request.text === "string"',
+  "Array.isArray(request.text)",
+  "Array.isArray(request.texts)",
+  'throw new Error("model_request_shape_not_approved")',
+]) {
+  assert.ok(inference.includes(required), `inference classifier missing approved shape: ${required}`);
+}
+for (const forbidden of ["request.image", "request.audio", "request.prompt", "request.query", "request.contexts"]) {
+  assert.ok(!inference.includes(forbidden), `inference classifier widened into an unreviewed provider shape: ${forbidden}`);
+}
+
 const qualityStart = runtime.indexOf("const ANSWER_QUALITY_POLICY = [");
 const qualityEnd = runtime.indexOf('type InferenceKind = "chat" | "embedding"', qualityStart);
 assert.ok(qualityStart >= 0 && qualityEnd > qualityStart, "answer quality policy is missing");
@@ -150,6 +172,7 @@ console.log("EVAVO chat model policy passed.");
 console.log(`- reviewed chat fallback: ${ACTIVE_MODEL}`);
 console.log(`- reviewed embedding fallback: ${EMBEDDING_MODEL}`);
 console.log("- chat and embedding inference are admitted separately and unknown request shapes fail closed");
+console.log("- BGE scalar and provider-documented text-array batch requests remain embedding-only");
 console.log("- unapproved configured chat models fall back instead of creating accidental paid-model usage");
 console.log("- previous Llama chat fallbacks are explicitly retired");
 console.log("- answer-quality policy augments only chat system messages and leaves embedding input untouched");
