@@ -48,20 +48,27 @@ for (const required of [
 }
 
 for (const required of [
-  "# Administrator model UI migration",
-  "migration debt, not supported model-selection authority",
+  "# Administrator model UI contract",
+  "historical editable Llama model field has been retired",
   "Reviewed chat model",
   REVIEWED_MODEL,
-  "make the control read-only or render it as non-editable status text",
+  "keep the control read-only or render it as non-editable status text",
   "never expose provider credentials, billing controls or arbitrary model discovery",
-  "omit the model field and let the server-owned boundary supply the reviewed model",
-  "must not send visitor/operator-entered arbitrary model identifiers",
-  "preserve `credentials: \"omit\"`",
-  "preserve exact Bearer authorization",
-  "update `worker/scripts/check-admin-model-truth.mjs` in the same commit",
-  "Do not weaken the server model allowlist",
+  "must never send visitor/operator-entered arbitrary model identifiers",
+  "`credentials: \"omit\"` and `referrerPolicy: \"no-referrer\"` remain intact",
+  "exact Bearer authorization remains intact",
+  "the retired Llama placeholder stays absent",
+  "editable model authority stays absent",
+  "server model allowlist remains the execution authority",
 ]) {
-  assert.ok(migration.includes(required), `admin model UI migration contract missing: ${required}`);
+  assert.ok(migration.includes(required), `admin model UI contract missing: ${required}`);
+}
+
+for (const forbidden of [
+  "migration debt, not supported model-selection authority",
+  "When `admin/index.html` is edited through a patch-safe local workflow",
+]) {
+  assert.ok(!migration.includes(forbidden), `completed admin model contract still describes pending debt: ${forbidden}`);
 }
 
 for (const required of [
@@ -73,6 +80,7 @@ for (const required of [
   "model: REVIEWED_CHAT_MODEL,",
   'setText("model", REVIEWED_CHAT_MODEL);',
   'credentials: "omit"',
+  'referrerPolicy: "no-referrer"',
   "Authorization: `Bearer ${token}`",
 ]) {
   assert.ok(admin.includes(required), `admin reviewed-model UI missing: ${required}`);
@@ -106,5 +114,6 @@ for (const forbidden of [
 console.log("EVAVO admin model truth contract passed.");
 console.log(`- protected storage, admin projections and operator UI are canonicalized to ${REVIEWED_MODEL}`);
 console.log("- the model field is read-only and cannot grant arbitrary operator model-selection authority");
-console.log("- save and load paths preserve the reviewed model while Bearer auth and credentials-omit behavior remain intact");
+console.log("- save and load paths preserve the reviewed model while Bearer auth, no-referrer and credentials-omit behavior remain intact");
 console.log("- the retired Llama placeholder and arbitrary model payload path are absent");
+console.log("- the admin model UI migration is complete and documented as a current invariant");
