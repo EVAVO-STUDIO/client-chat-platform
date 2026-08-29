@@ -63,7 +63,7 @@ function firstModelArgument(args: readonly unknown[]) {
 function embeddingTextAllowed(value: unknown): value is string {
   return (
     typeof value === "string" &&
-    value.length > 0 &&
+    value.trim().length > 0 &&
     value.length <= MODEL_EMBEDDING_MAX_TEXT_CHARS
   );
 }
@@ -81,20 +81,33 @@ function inferenceKind(args: readonly unknown[]): InferenceKind {
   const request = firstModelArgument(args);
   if (!request) throw new Error("model_request_shape_not_approved");
 
-  const chatRequested = Array.isArray(request.messages);
-  const scalarText = embeddingTextAllowed(request.text);
-  const textBatch = embeddingTextArrayAllowed(request.text);
-  const legacyTextsBatch = embeddingTextArrayAllowed(request.texts);
-  const embeddingFormCount =
-    Number(scalarText) + Number(textBatch) + Number(legacyTextsBatch);
+  const hasMessages = Object.prototype.hasOwnProperty.call(request, "messages");
+  const hasText = Object.prototype.hasOwnProperty.call(request, "text");
+  const hasTexts = Object.prototype.hasOwnProperty.call(request, "texts");
+  const chatRequested = Array.isArray(request.messages) && request.messages.length > 0;
 
-  if (chatRequested && embeddingFormCount > 0) {
+  if (hasMessages && !chatRequested) {
+    throw new Error("model_request_shape_not_approved");
+  }
+  if (chatRequested && (hasText || hasTexts)) {
     throw new Error("model_request_shape_ambiguous");
   }
   if (chatRequested) return "chat";
-  if (embeddingFormCount === 1) return "embedding";
-  if (embeddingFormCount > 1) {
+  if (hasText && hasTexts) {
     throw new Error("model_request_shape_ambiguous");
+  }
+  if (hasText) {
+    if (
+      embeddingTextAllowed(request.text) ||
+      embeddingTextArrayAllowed(request.text)
+    ) {
+      return "embedding";
+    }
+    throw new Error("model_request_shape_not_approved");
+  }
+  if (hasTexts) {
+    if (embeddingTextArrayAllowed(request.texts)) return "embedding";
+    throw new Error("model_request_shape_not_approved");
   }
   throw new Error("model_request_shape_not_approved");
 }
@@ -453,6 +466,7 @@ export const activeChatRuntimePosture = Object.freeze({
   chatMaxCompletionTokens: MODEL_CHAT_MAX_COMPLETION_TOKENS,
   everyChatProviderCallHasExplicitCompletionLimit: true,
   legacyMaxTokensTranslatedToCurrentCompletionField: true,
+  missingCompletionLimitUsesExplicitFallback: true,
   ambiguousCompletionLimitsFailClosed: true,
   qualityPolicyConsumesExistingInputBudget: true,
   oldestHistoryMayBeDroppedBeforeRaisingInputCeiling: true,
