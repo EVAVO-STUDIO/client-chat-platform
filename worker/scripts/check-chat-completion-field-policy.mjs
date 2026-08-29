@@ -16,6 +16,7 @@ assert.ok(legacyRouter.length > 0 && !legacyRouter.includes("\r"));
 assert.ok(policy.length > 0 && !policy.includes("\r"));
 
 for (const required of [
+  "const MODEL_CHAT_DEFAULT_COMPLETION_TOKENS = 512;",
   "const MODEL_CHAT_MAX_COMPLETION_TOKENS = 1_024;",
   "function boundedCompletionTokens(value: unknown): number | undefined",
   'throw new Error("model_chat_completion_limit_not_approved")',
@@ -23,11 +24,14 @@ for (const required of [
   "const legacy = boundedCompletionTokens(request.max_tokens);",
   "const current = boundedCompletionTokens(request.max_completion_tokens);",
   'throw new Error("model_chat_completion_limit_ambiguous")',
+  "const selected = current ?? legacy ?? MODEL_CHAT_DEFAULT_COMPLETION_TOKENS;",
   "const { max_tokens: _legacyMaxTokens, ...rest } = request;",
-  "{ ...rest, max_completion_tokens: selected }",
+  "return { ...rest, max_completion_tokens: selected };",
   "const currentRequest = withCurrentChatCompletionField(request);",
   "return [{ ...currentRequest, messages }, ...args.slice(1)];",
+  "chatDefaultCompletionTokens: MODEL_CHAT_DEFAULT_COMPLETION_TOKENS",
   "chatMaxCompletionTokens: MODEL_CHAT_MAX_COMPLETION_TOKENS",
+  "everyChatProviderCallHasExplicitCompletionLimit: true",
   "legacyMaxTokensTranslatedToCurrentCompletionField: true",
   "ambiguousCompletionLimitsFailClosed: true",
 ]) {
@@ -53,6 +57,7 @@ for (const forbidden of [
   "localStorage",
   "sessionStorage",
   "document.cookie",
+  "MODEL_CHAT_DEFAULT_COMPLETION_TOKENS = 1_024",
   "MODEL_CHAT_MAX_COMPLETION_TOKENS = 2_048",
   "Number.MAX_SAFE_INTEGER",
   "Infinity",
@@ -66,13 +71,17 @@ for (const required of [
   "same 1,024-token hard ceiling",
   "removes the deprecated `max_tokens` field before provider execution",
   "conflicting legacy/current completion limits fail closed",
+  "missing internal completion limit",
+  "explicit 512-token fallback",
 ]) {
   assert.ok(policy.includes(required), `completion-field policy documentation missing: ${required}`);
 }
 
 console.log("EVAVO chat completion-field policy passed.");
 console.log("- the legacy router may keep max_tokens internally while the provider boundary emits max_completion_tokens");
-console.log("- the current GLM request preserves the same 1,024-token hard ceiling");
+console.log("- every chat provider request receives an explicit completion limit");
+console.log("- EVAVO's configured 320-token limit is preserved and a missing internal limit falls back to 512");
+console.log("- the hard ceiling remains exactly 1,024 tokens");
 console.log("- invalid, oversized and conflicting completion limits fail closed before provider execution");
 console.log("- embedding inference remains outside this chat-only compatibility adapter");
 console.log("- no provider credential, network, storage or execution authority was added");
