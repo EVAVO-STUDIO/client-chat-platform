@@ -61,7 +61,9 @@ function inferenceKind(args: readonly unknown[]): InferenceKind {
   if (request && Array.isArray(request.messages)) return "chat";
   if (
     request &&
-    (typeof request.text === "string" || Array.isArray(request.texts))
+    (typeof request.text === "string" ||
+      Array.isArray(request.text) ||
+      Array.isArray(request.texts))
   ) {
     return "embedding";
   }
@@ -382,6 +384,7 @@ export const activeChatRuntimePosture = Object.freeze({
   configuredModelValidatedBeforeProviderCall: true,
   configuredModelMustBeReviewedForCurrentFreePlan: true,
   chatAndEmbeddingInferenceAreSeparatelyAdmitted: true,
+  embeddingTextArrayBatchShapeApproved: true,
   unrecognisedInferenceShapeFailsClosed: true,
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
   chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS,
