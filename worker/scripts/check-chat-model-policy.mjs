@@ -110,12 +110,16 @@ for (const required of [
   ACTIVE_MODEL,
   EMBEDDING_MODEL,
   "Chat generation and embedding inference are admitted separately",
+  "provider-documented batch `text: string[]`",
   "An unrecognised inference request shape fails closed",
   "30,000-character system and 75,000-character total-input ceilings",
   "20-second runtime timeout",
   "check:super-eva` also runs the portable-widget contract and the chat-model policy guard",
   "Do not add a new model merely because its `@cf/...` identifier is syntactically valid",
-]) assert.ok(deployment.includes(required), `deployment runbook missing model policy: ${required}`);
+  "The root deploy command delegates to `npm --prefix worker run deploy`",
+  "worker package's `predeploy` hook",
+  "Direct Wrangler invocation bypasses the worker npm `predeploy` gate",
+]) assert.ok(deployment.includes(required), `deployment runbook missing model/lifecycle policy: ${required}`);
 for (const model of RETIRED_MODELS) assert.ok(deployment.includes(model), `deployment runbook missing retired model: ${model}`);
 
 for (const forbidden of ["https://api.cloudflare.com", "CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID", "AI_GATEWAY_TOKEN", "process.env", "fetch("]) {
@@ -180,5 +184,6 @@ console.log("- answer-quality augmentation remains inside the existing 30k syste
 console.log("- oldest history may be removed before any input ceiling can be raised");
 console.log("- OpenAI-style chat output is normalized while embedding results pass through unchanged");
 console.log("- runtime, model policy and deployment runbook are checked together");
+console.log("- guarded root-to-worker npm deployment lifecycle remains documented");
 console.log("- model calls remain bounded by the 20-second provider deadline");
 console.log("- no provider credential, REST endpoint or external fetch authority was added");
