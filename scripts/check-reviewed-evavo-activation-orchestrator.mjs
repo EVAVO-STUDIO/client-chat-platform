@@ -27,13 +27,18 @@ for (const required of [
   "Require-Env 'EVAVO_CHAT_ACTIVATE_CONFIRM'",
   "Require-Env 'EVAVO_CHAT_WORKER_URL'",
   "Require-Env 'EVAVO_CHAT_ADMIN_TOKEN'",
+  "[Text.Encoding]::UTF8.GetByteCount($AdminToken)",
   "Invoke-Checked 'EVAVO_CHAT_DEPLOY' @('npm', 'run', 'deploy')",
   "Invoke-Checked 'EVAVO_CHAT_SEED_APPLY' @('npm', 'run', 'apply:evavo-seed')",
   "Invoke-Checked 'EVAVO_CHAT_ACTIVATION_VERIFY' @('npm', 'run', 'verify:evavo-activation')",
   "[Environment]::SetEnvironmentVariable('EVAVO_CHAT_APPLY_SEED_CONFIRM', $SeedConfirmation, 'Process')",
   "'EVAVO_CHAT_CHECKOUT_MUTATED_DURING_ACTIVATION'",
   "first-party approved-origin chat was verified without a bot-key credential",
-  "administrator token was not printed and remains process-local",
+  "activation credentials are being cleared from this PowerShell process",
+  "Remove-Item Env:EVAVO_CHAT_APPLY_SEED_CONFIRM -ErrorAction SilentlyContinue",
+  "Remove-Item Env:EVAVO_CHAT_ACTIVATE_CONFIRM -ErrorAction SilentlyContinue",
+  "Remove-Item Env:EVAVO_CHAT_ADMIN_TOKEN -ErrorAction SilentlyContinue",
+  "Remove-Item Env:EVAVO_CHAT_WORKER_URL -ErrorAction SilentlyContinue",
 ]) {
   assert.ok(source.includes(required), `activation orchestrator missing: ${required}`);
 }
@@ -75,13 +80,25 @@ assert.equal(
 );
 assert.equal(
   (source.match(/EVAVO_CHAT_ADMIN_TOKEN/g) ?? []).length,
-  2,
-  "administrator token should only be required and validated, never copied elsewhere",
+  3,
+  "administrator token should only be required, validated and cleared",
 );
+
+const cleanupIndex = source.indexOf("finally {");
+assert.ok(cleanupIndex > verifyIndex, "activation credential cleanup must run after the guarded workflow body");
+for (const token of [
+  "Env:EVAVO_CHAT_APPLY_SEED_CONFIRM",
+  "Env:EVAVO_CHAT_ACTIVATE_CONFIRM",
+  "Env:EVAVO_CHAT_ADMIN_TOKEN",
+  "Env:EVAVO_CHAT_WORKER_URL",
+]) {
+  assert.ok(source.indexOf(token, cleanupIndex) > cleanupIndex, `activation cleanup missing ${token}`);
+}
 
 console.log("EVAVO Windows activation orchestrator contract passed.");
 console.log("- exact SHA, main branch, clean checkout and explicit confirmation are required before deployment");
 console.log("- deployment uses only the canonical npm lifecycle");
 console.log("- reviewed seed/cache mutation follows deployment and read-only verification follows mutation");
 console.log("- no direct Wrangler, Git mutation, HTTP shortcut or embedded credential authority is present");
-console.log("- administrator token remains process-local and is never intentionally printed");
+console.log("- administrator token uses the same UTF-8 byte bounds as the seed helper");
+console.log("- activation credentials are removed from the PowerShell process on success or failure");
