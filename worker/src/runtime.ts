@@ -30,6 +30,7 @@ const MODEL_PATTERN = /^@cf\/[A-Za-z0-9._/-]{1,120}$/;
 const MODEL_TIMEOUT_MS = 20_000;
 const MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000;
 const MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000;
+const MODEL_CHAT_DEFAULT_COMPLETION_TOKENS = 512;
 const MODEL_CHAT_MAX_COMPLETION_TOKENS = 1_024;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
@@ -151,11 +152,9 @@ function withCurrentChatCompletionField(
   if (legacy !== undefined && current !== undefined && legacy !== current) {
     throw new Error("model_chat_completion_limit_ambiguous");
   }
-  const selected = current ?? legacy;
+  const selected = current ?? legacy ?? MODEL_CHAT_DEFAULT_COMPLETION_TOKENS;
   const { max_tokens: _legacyMaxTokens, ...rest } = request;
-  return selected === undefined
-    ? rest
-    : { ...rest, max_completion_tokens: selected };
+  return { ...rest, max_completion_tokens: selected };
 }
 
 function withAnswerQualityPolicy(args: readonly unknown[]) {
@@ -419,7 +418,9 @@ export const activeChatRuntimePosture = Object.freeze({
   modelResponseTimeoutMs: MODEL_TIMEOUT_MS,
   chatSystemCharacterLimit: MODEL_CHAT_MAX_SYSTEM_CHARS,
   chatTotalInputCharacterLimit: MODEL_CHAT_MAX_TOTAL_INPUT_CHARS,
+  chatDefaultCompletionTokens: MODEL_CHAT_DEFAULT_COMPLETION_TOKENS,
   chatMaxCompletionTokens: MODEL_CHAT_MAX_COMPLETION_TOKENS,
+  everyChatProviderCallHasExplicitCompletionLimit: true,
   legacyMaxTokensTranslatedToCurrentCompletionField: true,
   ambiguousCompletionLimitsFailClosed: true,
   qualityPolicyConsumesExistingInputBudget: true,
