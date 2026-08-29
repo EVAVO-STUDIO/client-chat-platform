@@ -76,7 +76,9 @@ The canonical npm chain remains:
 5. `npm run typecheck`
 6. `npm run check:bundle`
 
-`check:super-eva` also runs the portable-widget contract and the chat-model policy guard before its SUPER EVA compatibility assertions. This keeps those checks mandatory without changing the exact canonical command chain protected by the security meta-contract.
+`check:super-eva` also runs the portable-widget contract, chat-model policy, bounded GLM completion-field policy, stored/admin model truth checks, hardened quickstart contract, reviewed EVAVO seed contract and reviewed seed-apply helper contract before its SUPER EVA compatibility assertions. This keeps those focused checks mandatory without changing the exact canonical command chain protected by the security meta-contract.
+
+The seed-apply helper is **validated but never executed** by `npm run check`. Validation must remain read-only.
 
 `npm run check:bundle` runs Wrangler with `--dry-run` into `.wrangler/dry-run`. It validates the active module graph and configuration without publishing the Worker.
 
@@ -171,11 +173,34 @@ A missing, malformed, retired or currently unapproved chat-model ID resolves to 
 
 Workers AI calls remain bounded by a 20-second runtime timeout. The chat boundary also normalises supported OpenAI-style `choices[0].message.content` output into the stable legacy `response` field, while embedding responses pass through unchanged.
 
+The historical router still computes its configured output allowance as `maxTokens` and internally supplies `max_tokens`. The active runtime boundary removes that deprecated provider field and sends the same admitted value as `max_completion_tokens` instead. Every chat provider call has an explicit completion cap:
+
+- reviewed EVAVO seed: **320** completion tokens;
+- missing internal completion limit: explicit **512**-token fallback;
+- absolute admitted maximum: **1,024** completion tokens.
+
+Invalid, non-integer, zero, negative, oversized or conflicting legacy/current completion fields fail closed before provider execution. This compatibility layer applies only to chat inference and does not alter embedding requests.
+
 The answer-quality policy applies only to chat generation. It remains inside the existing 30,000-character system and 75,000-character total-input ceilings; older history is reduced before those ceilings can be exceeded.
 
-The fallback does not rewrite KV. Resave old records through the current admin console so stored configuration truthfully describes runtime behaviour. Do not add a new model merely because its `@cf/...` identifier is syntactically valid; it must be reviewed and admitted in `worker/src/runtime.ts`, `worker/scripts/check-chat-model-policy.mjs` and `docs/chat-model-policy.md` together.
+The fallback does not rewrite KV. Resave old records through the current admin console, or apply the reviewed EVAVO seed through the explicit post-deploy procedure below, so stored configuration truthfully describes runtime behaviour. Do not add a new model merely because its `@cf/...` identifier is syntactically valid; it must be reviewed and admitted in `worker/src/runtime.ts`, `worker/scripts/check-chat-model-policy.mjs` and `docs/chat-model-policy.md` together.
 
-## 9. Knowledge-cache behaviour
+## 9. EVAVO Workers AI cost envelope
+
+`worker/upsert-evavo.json` deliberately keeps the public EVAVO bot well inside a conservative reviewed model envelope:
+
+- `maxTokens`: 320;
+- `maxRequestsPerDay`: 45;
+- `maxTokensPerDay`: 45,000 total chat tokens;
+- `ragMode`: `simple`.
+
+The dated provider-rate calculation and its executable guard live in `docs/evavo-workers-ai-free-tier-envelope.md` and `worker/scripts/check-evavo-seed-policy.mjs`.
+
+The 45,000-token budget is an internal chat guard, not Cloudflare's billing unit. The reviewed pessimistic calculation treats all 45,000 tokens as though they were charged at GLM-4.7-Flash's more expensive output rate and keeps the EVAVO bot under a 2,000-neuron/day reviewed envelope. This is deliberately conservative.
+
+Do **not** treat that as an account-wide billing guarantee. Workers AI allocation is shared with other account activity and provider pricing or plan availability can change. Re-review current Cloudflare pricing before increasing model or traffic limits.
+
+## 10. Knowledge-cache behaviour
 
 Public chat never fetches source pages during a visitor request. Only authenticated:
 
@@ -208,7 +233,7 @@ curl.exe -i -X POST "$WorkerUrl/admin/kb/refresh" `
 
 A partial refresh is reported honestly. Failed sources are not replaced with invented text.
 
-## 10. Verify explicit visitor-approved follow-up
+## 11. Verify explicit visitor-approved follow-up
 
 A model `create_lead` action cannot write a record during `/api/chat`. The widget must display the exact visitor-provided email and message excerpt and obtain a separate click on **Share for follow-up**.
 
@@ -255,7 +280,7 @@ Expected when the origin is approved:
 
 Omitting `consent`, changing it to a string, changing a field so it no longer appears in `evidence`, or using an unapproved origin must fail closed.
 
-## 11. Configure production Worker variables
+## 12. Configure production Worker variables
 
 Authenticate Wrangler:
 
@@ -285,7 +310,7 @@ https://ops.example.com,https://admin.example.com
 
 Do not add production values to `wrangler.jsonc` or any tracked file.
 
-## 12. Confirm bindings
+## 13. Confirm bindings
 
 `worker/wrangler.jsonc` declares:
 
@@ -297,7 +322,7 @@ KB_CACHE
 
 The namespace IDs are binding identifiers, not bearer credentials. Do not recreate or replace the production namespaces during a routine source release.
 
-## 13. Deploy through the guarded npm lifecycle
+## 14. Deploy through the guarded npm lifecycle
 
 ```powershell
 cd C:\GitRepos\client-chat-platform
@@ -308,7 +333,9 @@ The root deploy command delegates to `npm --prefix worker run deploy`. npm then 
 
 Direct Wrangler invocation bypasses the worker npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
 
-## 14. Verify the deployed runtime
+A Worker code deployment does **not** automatically rewrite the `evavo` bot configuration in KV and does not refresh approved source caches. That separation is intentional.
+
+## 15. Verify the deployed runtime
 
 ```powershell
 $WorkerUrl = "https://client-chat-platform.example.workers.dev"
@@ -352,7 +379,81 @@ curl.exe -i "$WorkerUrl/api/leads"
 
 Expected: HTTP `405` with the appropriate `Allow` header.
 
-## 15. Embed the current widget
+## 16. Apply and verify the reviewed EVAVO seed
+
+Run this only **after** the deployed Worker has passed the runtime verification above.
+
+The source release and bot-config mutation are intentionally separate. `npm run deploy` must never invoke this operation automatically.
+
+From the repository root:
+
+```powershell
+cd C:\GitRepos\client-chat-platform
+$env:EVAVO_CHAT_WORKER_URL = "https://<reviewed-worker-host>"
+$env:EVAVO_CHAT_ADMIN_TOKEN = "<current-admin-token>"
+$env:EVAVO_CHAT_APPLY_SEED_CONFIRM = "APPLY_EVAVO_REVIEWED_SEED"
+cmd /c "npm run apply:evavo-seed"
+Remove-Item Env:EVAVO_CHAT_ADMIN_TOKEN
+Remove-Item Env:EVAVO_CHAT_APPLY_SEED_CONFIRM
+Remove-Item Env:EVAVO_CHAT_WORKER_URL
+```
+
+The helper is intentionally fail-closed. Before mutation it requires:
+
+- an HTTPS Worker origin, except HTTP localhost/127.0.0.1 for local testing;
+- no target URL credentials, query string, fragment or path;
+- an administrator token supplied only through the process environment;
+- exact confirmation `APPLY_EVAVO_REVIEWED_SEED`;
+- HTTP `200` `/health`;
+- `securityContract: client_chat_hardened_router_v2`;
+- `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v2`.
+
+It then performs only this reviewed sequence:
+
+1. `POST /admin/upsert` with `worker/upsert-evavo.json`;
+2. `POST /admin/get` to verify the redacted committed projection;
+3. `POST /admin/kb/refresh` for the approved EVAVO sources.
+
+Each operation has one 20-second deadline covering headers **and** the bounded streamed response body, with a 128 KiB response maximum. The helper fails if the stored projection does not match the reviewed model/limits/origins/knowledge/actions, if a bot key is exposed, or if even one approved knowledge URL fails to refresh.
+
+The helper does not print the administrator token or the full returned configuration. Its comparison failures use stable error codes rather than dumping configuration objects.
+
+Successful output should report:
+
+- active runtime `client_chat_active_runtime_v2`;
+- reviewed model `@cf/zai-org/glm-4.7-flash`;
+- 320 completion-token EVAVO limit;
+- 45-request daily EVAVO limit;
+- all approved knowledge sources refreshed.
+
+Remove the administrator token and confirmation environment variables immediately after the command as shown above.
+
+## 17. Smoke-test the reviewed EVAVO chat
+
+After seed application, send a non-sensitive prompt from an approved browser origin or an equivalent test harness that supplies the exact approved `Origin` header.
+
+Recommended prompts cover the boundaries we care about:
+
+```text
+What does EVAVO specialise in?
+Can you show me some of your work?
+What would a website cost and how long would it take?
+Can you save my details for follow-up?
+```
+
+Confirm:
+
+- the response is non-empty and specific;
+- factual links come only from reviewed EVAVO sources/configuration;
+- no invented price, date, policy, SLA, certification or client fact appears;
+- the assistant does not claim visitor data was saved or sent merely because it generated text;
+- any follow-up proposal still requires the separate visitor-controlled consent action;
+- the response carries `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v2`;
+- no raw model identifier or administrator configuration is returned.
+
+Do not use this smoke test to create a real lead unless explicitly testing the separate consent route with disposable test evidence.
+
+## 18. Embed the current widget
 
 ```html
 <script
@@ -370,7 +471,7 @@ The browser widget is authorised by the exact page origin stored in bot configur
 
 A strict host Content Security Policy may pass its response-specific style nonce through `data-style-nonce`. Do not hard-code or reuse a nonce.
 
-## 16. Operational limitations and incidents
+## 19. Operational limitations and incidents
 
 Workers KV is eventually consistent. Current rate limits, daily budgets and lead indexes reduce cost and abuse but are not strict transactional quotas. Concurrent requests can temporarily exceed a counter, and concurrent index writes can race. Use a Durable Object or another transactional coordinator before treating these values as billing, compliance or high-assurance security controls.
 
