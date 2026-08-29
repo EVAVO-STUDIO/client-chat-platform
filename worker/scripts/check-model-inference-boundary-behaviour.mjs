@@ -68,6 +68,7 @@ try {
   assert.deepEqual(boundary.modelInferenceBoundaryPosture, {
     contract: "client_chat_model_inference_boundary_v1",
     chatMessagesMustBeNonEmpty: true,
+    chatMessagesMustUseReviewedRolesAndNonEmptyText: true,
     embeddingTextMaximumCharacters: 2_000,
     embeddingBatchMaximumItems: 24,
     embeddingBatchItemsMustBeBoundedStrings: true,
@@ -84,6 +85,18 @@ try {
     classify([{ messages: [{ role: "user", content: "hello" }] }]),
     "chat",
   );
+  assert.equal(
+    classify([
+      {
+        messages: [
+          { role: "system", content: "Use approved evidence." },
+          { role: "user", content: "hello" },
+          { role: "assistant", content: "Hi." },
+        ],
+      },
+    ]),
+    "chat",
+  );
   assert.equal(classify([{ text: "hello" }]), "embedding");
   assert.equal(classify([{ text: "x".repeat(2_000) }]), "embedding");
   assert.equal(classify([{ text: ["hello"] }]), "embedding");
@@ -98,6 +111,26 @@ try {
   expectError(classify, {}, "model_request_shape_not_approved");
   expectError(classify, { messages: [] }, "model_request_shape_not_approved");
   expectError(classify, { messages: "hello" }, "model_request_shape_not_approved");
+  expectError(
+    classify,
+    { messages: [42] },
+    "model_request_shape_not_approved",
+  );
+  expectError(
+    classify,
+    { messages: [{ role: "tool", content: "hello" }] },
+    "model_request_shape_not_approved",
+  );
+  expectError(
+    classify,
+    { messages: [{ role: "user", content: "   " }] },
+    "model_request_shape_not_approved",
+  );
+  expectError(
+    classify,
+    { messages: [{ role: "user", content: 42 }] },
+    "model_request_shape_not_approved",
+  );
   expectError(classify, { text: "" }, "model_request_shape_not_approved");
   expectError(classify, { text: "   " }, "model_request_shape_not_approved");
   expectError(
@@ -145,7 +178,7 @@ try {
   expectError(classify, { prompt: "hello" }, "model_request_shape_not_approved");
 
   console.log("EVAVO model inference boundary behavior passed.");
-  console.log("- non-empty messages are the only admitted chat form");
+  console.log("- chat messages use only reviewed roles with non-empty string content");
   console.log("- scalar and batch embedding text are bounded to 2,000 characters and 24 items");
   console.log("- whitespace, mixed types, oversized batches and unknown shapes fail closed");
   console.log("- chat plus embedding inputs and dual text/texts forms fail as ambiguous");
