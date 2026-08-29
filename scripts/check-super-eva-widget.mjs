@@ -61,10 +61,20 @@ for (const prohibited of [
   /new Audio\s*\(/u,
   /response\.text\s*\(/u,
   /safeAudioUrl/u,
+  /res\.cloudinary\.com/u,
+  /createImageBitmap/u,
+  /new Image\s*\(/u,
+  /HTMLCanvasElement/u,
+  /getContext\s*\(\s*["'](?:2d|webgl|webgl2)["']/u,
+  /requestAnimationFrame/u,
+  /sprite(?:sheet)?/iu,
+  /atlas(?:es)?/iu,
+  /sequenceRelease/iu,
+  /animationProfile/iu,
 ]) {
   if (prohibited.test(widget)) {
     throw new Error(
-      `SUPER EVA widget contains prohibited surface: ${prohibited}`,
+      `SUPER EVA compatibility widget contains avatar-runtime surface: ${prohibited}`,
     );
   }
 }
@@ -91,8 +101,15 @@ assert.ok(
   "SUPER EVA compatibility widget was promoted as the canonical production embed",
 );
 
+const fakeRuntimeRegression = `${widget}\nconst atlas = \"eva-atlas\";`;
+assert.ok(
+  /atlas(?:es)?/iu.test(fakeRuntimeRegression),
+  "SUPER EVA avatar-runtime negative fixture is ineffective",
+);
+
 console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
+console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
