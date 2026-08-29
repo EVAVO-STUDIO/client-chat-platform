@@ -16,7 +16,7 @@ The active runtime contract is:
 client_chat_active_runtime_v2
 ```
 
-`runtime.ts` removes retired request aliases, applies the reviewed model fallback and timeout, blocks implicit model-driven lead writes, and exposes the explicit visitor-consent route. It delegates ordinary requests to `worker/src/hardened.ts`, which wraps the historical `worker/src/index.ts` compatibility code.
+`runtime.ts` removes retired request aliases, applies the reviewed chat/embedding model boundary and timeout, blocks implicit model-driven lead writes, and exposes the explicit visitor-consent route. It delegates ordinary requests to `worker/src/hardened.ts`, which wraps the historical `worker/src/index.ts` compatibility code.
 
 Do not point Wrangler directly at either compatibility module.
 
@@ -67,7 +67,7 @@ cd C:\GitRepos\client-chat-platform\worker
 cmd /c "npm run check"
 ```
 
-The order is mandatory:
+The canonical npm chain remains:
 
 1. `npm run check:source-secrets`
 2. `npm run check:config-secrets` through the `precheck:security` lifecycle hook
@@ -75,6 +75,8 @@ The order is mandatory:
 4. `npm run check:super-eva`
 5. `npm run typecheck`
 6. `npm run check:bundle`
+
+`check:super-eva` also runs the portable-widget contract and the chat-model policy guard before its SUPER EVA compatibility assertions. This keeps those checks mandatory without changing the exact canonical command chain protected by the security meta-contract.
 
 `npm run check:bundle` runs Wrangler with `--dry-run` into `.wrangler/dry-run`. It validates the active module graph and configuration without publishing the Worker.
 
@@ -132,7 +134,8 @@ Review and resave a bot when it has:
 - webhook URL, authentication or secret fields;
 - an invalid bot key;
 - obsolete lead mode values;
-- malformed bounded settings.
+- malformed bounded settings;
+- a retired or unreviewed model identifier.
 
 For each bot:
 
@@ -148,17 +151,29 @@ For each bot:
 
 The current writer stores schema version 4 and discards unsafe legacy fields rather than silently retaining them.
 
-## 8. Model fallback posture
+## 8. Reviewed inference posture
 
-The final runtime uses:
+The active public-chat generation fallback is:
 
 ```text
-@cf/meta/llama-3.2-3b-instruct
+@cf/zai-org/glm-4.7-flash
 ```
 
-when a stored record has no model, a malformed model identifier, or the known-retired `@cf/meta/llama-3-8b-instruct` identifier. Workers AI calls are bounded by a 20-second runtime timeout.
+The reviewed semantic-retrieval embedding fallback is:
 
-The fallback does not rewrite KV. Resave old records through the current admin console so stored configuration truthfully describes runtime behaviour.
+```text
+@cf/baai/bge-base-en-v1.5
+```
+
+Chat generation and embedding inference are admitted separately. A `messages` request is treated as chat generation; a `text` or `texts` request is treated as embedding inference. An unrecognised inference request shape fails closed.
+
+A missing, malformed, retired or currently unapproved chat-model ID resolves to the reviewed GLM fallback. The former `@cf/meta/llama-3.2-3b-instruct` and `@cf/meta/llama-3-8b-instruct` chat fallbacks are retired. An unapproved embedding model resolves to the reviewed BGE embedding model instead of being redirected through the chat model.
+
+Workers AI calls remain bounded by a 20-second runtime timeout. The chat boundary also normalises supported OpenAI-style `choices[0].message.content` output into the stable legacy `response` field, while embedding responses pass through unchanged.
+
+The answer-quality policy applies only to chat generation. It remains inside the existing 30,000-character system and 75,000-character total-input ceilings; older history is reduced before those ceilings can be exceeded.
+
+The fallback does not rewrite KV. Resave old records through the current admin console so stored configuration truthfully describes runtime behaviour. Do not add a new model merely because its `@cf/...` identifier is syntactically valid; it must be reviewed and admitted in `worker/src/runtime.ts`, `worker/scripts/check-chat-model-policy.mjs` and `docs/chat-model-policy.md` together.
 
 ## 9. Knowledge-cache behaviour
 
@@ -289,7 +304,7 @@ cd C:\GitRepos\client-chat-platform
 cmd /c "npm run deploy"
 ```
 
-The package `predeploy` hook reruns the complete source, configuration, security, Super EVA, TypeScript and bundle chain before Wrangler uploads anything.
+The package `predeploy` hook reruns the complete source, configuration, security, portable-widget/model-policy/SUPER EVA, TypeScript and bundle chain before Wrangler uploads anything.
 
 Direct Wrangler invocation bypasses the npm `predeploy` gate. Do not use direct `wrangler deploy` for a normal release.
 
