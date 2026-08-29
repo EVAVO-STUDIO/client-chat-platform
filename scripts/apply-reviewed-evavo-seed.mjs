@@ -204,12 +204,21 @@ function assertReviewedConfig(value, seed) {
     false,
     "EVAVO_CHAT_CONFIG_SECRET_PROJECTION_INVALID",
   );
+  if (typeof cfg.botKeyConfigured !== "boolean") {
+    fail("EVAVO_CHAT_CONFIG_BOT_KEY_STATE_INVALID");
+  }
+  requireEqual(
+    cfg.botKeyStatus,
+    cfg.botKeyConfigured ? "configured" : "not_configured",
+    "EVAVO_CHAT_CONFIG_BOT_KEY_STATUS_MISMATCH",
+  );
   if (
     typeof cfg.tone !== "string" ||
     !cfg.tone.includes("follow-up requires an explicit visitor-controlled action")
   ) {
     fail("EVAVO_CHAT_CONFIG_TONE_STALE");
   }
+  return cfg.botKeyConfigured;
 }
 
 async function main() {
@@ -250,10 +259,15 @@ async function main() {
   );
 
   const upserted = await adminPost(origin, token, "/admin/upsert", seed);
-  assertReviewedConfig(upserted, seed);
+  const upsertedBotKeyConfigured = assertReviewedConfig(upserted, seed);
 
   const stored = await adminPost(origin, token, "/admin/get", { botId: "evavo" });
-  assertReviewedConfig(stored, seed);
+  const storedBotKeyConfigured = assertReviewedConfig(stored, seed);
+  requireEqual(
+    storedBotKeyConfigured,
+    upsertedBotKeyConfigured,
+    "EVAVO_CHAT_CONFIG_BOT_KEY_STATE_MISMATCH",
+  );
 
   const refresh = await adminPost(origin, token, "/admin/kb/refresh", {
     botId: "evavo",
@@ -288,6 +302,10 @@ async function main() {
   console.log(
     `- bot limits: ${seed.maxTokens} completion tokens, ${seed.dailyBudget.maxRequestsPerDay} requests/day`,
   );
+  console.log(
+    `- historical server bot key: ${storedBotKeyConfigured ? "configured" : "not_configured"}`,
+  );
+  console.log("- first-party approved-origin website activation does not require that bot key");
   console.log(`- approved knowledge refreshed: ${refreshed}/${attempted}`);
   console.log("- administrator token and raw bot configuration were not printed");
 }
