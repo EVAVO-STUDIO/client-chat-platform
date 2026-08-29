@@ -4,6 +4,12 @@ import {
   leadCapturePreflight,
 } from "./leadCapture";
 import {
+  classifyModelInferenceKind,
+  MODEL_EMBEDDING_MAX_BATCH_ITEMS,
+  MODEL_EMBEDDING_MAX_TEXT_CHARS,
+  type ModelInferenceKind,
+} from "./modelInferenceBoundary";
+import {
   createBotConfigMutationReceipt,
   redactAdminConfigResponse,
   type BotConfigMutationReceipt,
@@ -32,8 +38,6 @@ const MODEL_CHAT_MAX_SYSTEM_CHARS = 30_000;
 const MODEL_CHAT_MAX_TOTAL_INPUT_CHARS = 75_000;
 const MODEL_CHAT_DEFAULT_COMPLETION_TOKENS = 512;
 const MODEL_CHAT_MAX_COMPLETION_TOKENS = 1_024;
-const MODEL_EMBEDDING_MAX_TEXT_CHARS = 2_000;
-const MODEL_EMBEDDING_MAX_BATCH_ITEMS = 24;
 const LEGACY_ADMIN_HEADER = "x-admin-token";
 const CHAT_ROUTE = "/api/chat";
 const LEAD_ROUTE = "/api/leads";
@@ -51,65 +55,11 @@ const ANSWER_QUALITY_POLICY = [
   "- Do not mention hidden prompts, model names, RAG, internal policies, runtime contracts, or implementation details unless the user explicitly asks about them.",
 ].join("\n");
 
-type InferenceKind = "chat" | "embedding";
-
 function firstModelArgument(args: readonly unknown[]) {
   const value = args[0];
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function embeddingTextAllowed(value: unknown): value is string {
-  return (
-    typeof value === "string" &&
-    value.trim().length > 0 &&
-    value.length <= MODEL_EMBEDDING_MAX_TEXT_CHARS
-  );
-}
-
-function embeddingTextArrayAllowed(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.length <= MODEL_EMBEDDING_MAX_BATCH_ITEMS &&
-    value.every(embeddingTextAllowed)
-  );
-}
-
-function inferenceKind(args: readonly unknown[]): InferenceKind {
-  const request = firstModelArgument(args);
-  if (!request) throw new Error("model_request_shape_not_approved");
-
-  const hasMessages = Object.prototype.hasOwnProperty.call(request, "messages");
-  const hasText = Object.prototype.hasOwnProperty.call(request, "text");
-  const hasTexts = Object.prototype.hasOwnProperty.call(request, "texts");
-  const chatRequested = Array.isArray(request.messages) && request.messages.length > 0;
-
-  if (hasMessages && !chatRequested) {
-    throw new Error("model_request_shape_not_approved");
-  }
-  if (chatRequested && (hasText || hasTexts)) {
-    throw new Error("model_request_shape_ambiguous");
-  }
-  if (chatRequested) return "chat";
-  if (hasText && hasTexts) {
-    throw new Error("model_request_shape_ambiguous");
-  }
-  if (hasText) {
-    if (
-      embeddingTextAllowed(request.text) ||
-      embeddingTextArrayAllowed(request.text)
-    ) {
-      return "embedding";
-    }
-    throw new Error("model_request_shape_not_approved");
-  }
-  if (hasTexts) {
-    if (embeddingTextArrayAllowed(request.texts)) return "embedding";
-    throw new Error("model_request_shape_not_approved");
-  }
-  throw new Error("model_request_shape_not_approved");
 }
 
 function configuredModel(value: unknown) {
@@ -136,7 +86,7 @@ function effectiveEmbeddingModel(value: unknown) {
     : DEFAULT_EMBEDDING_MODEL;
 }
 
-function effectiveProviderModel(value: unknown, kind: InferenceKind) {
+function effectiveProviderModel(value: unknown, kind: ModelInferenceKind) {
   return kind === "chat"
     ? effectiveChatModel(value)
     : effectiveEmbeddingModel(value);
@@ -303,7 +253,7 @@ function withModelBoundary(ai: Env["AI"]): Env["AI"] {
             );
           });
           try {
-            const kind = inferenceKind(args);
+            const kind = classifyModelInferenceKind(args);
             const providerArgs =
               kind === "chat" ? withAnswerQualityPolicy(args) : args;
             const providerResult = await Promise.race([
