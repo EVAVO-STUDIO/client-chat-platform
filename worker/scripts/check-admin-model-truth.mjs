@@ -10,16 +10,23 @@ const repositoryRoot = path.resolve(workerRoot, "..");
 const adminPath = path.join(repositoryRoot, "admin", "index.html");
 const storagePath = path.join(workerRoot, "src", "runtimeStorageBoundary.ts");
 const policyPath = path.join(repositoryRoot, "docs", "chat-model-policy.md");
+const migrationPath = path.join(repositoryRoot, "docs", "admin-model-ui-migration.md");
 
 const admin = fs.readFileSync(adminPath, "utf8");
 const storage = fs.readFileSync(storagePath, "utf8");
 const policy = fs.readFileSync(policyPath, "utf8");
+const migration = fs.readFileSync(migrationPath, "utf8");
 const REVIEWED_MODEL = "@cf/zai-org/glm-4.7-flash";
 const RETIRED_MODEL = "@cf/meta/llama-3.2-3b-instruct";
 
-assert.ok(admin.length > 0 && !admin.includes("\r"));
-assert.ok(storage.length > 0 && !storage.includes("\r"));
-assert.ok(policy.length > 0 && !policy.includes("\r"));
+for (const [label, source] of [
+  ["admin", admin],
+  ["storage", storage],
+  ["policy", policy],
+  ["migration", migration],
+]) {
+  assert.ok(source.length > 0 && !source.includes("\r"), `${label} model-truth source must be non-empty LF text`);
+}
 
 for (const required of [
   `const REVIEWED_CHAT_MODEL = "${REVIEWED_MODEL}";`,
@@ -38,6 +45,23 @@ for (const required of [
   REVIEWED_MODEL,
 ]) {
   assert.ok(policy.includes(required), `model policy missing stored-model truth rule: ${required}`);
+}
+
+for (const required of [
+  "# Administrator model UI migration",
+  "migration debt, not supported model-selection authority",
+  "Reviewed chat model",
+  REVIEWED_MODEL,
+  "make the control read-only or render it as non-editable status text",
+  "never expose provider credentials, billing controls or arbitrary model discovery",
+  "omit the model field and let the server-owned boundary supply the reviewed model",
+  "must not send visitor/operator-entered arbitrary model identifiers",
+  "preserve `credentials: \"omit\"`",
+  "preserve exact Bearer authorization",
+  "update `worker/scripts/check-admin-model-truth.mjs` in the same commit",
+  "Do not weaken the server model allowlist",
+]) {
+  assert.ok(migration.includes(required), `admin model UI migration contract missing: ${required}`);
 }
 
 // The server boundary is authoritative today. Until the admin surface is made
@@ -65,4 +89,4 @@ for (const forbidden of [
 console.log("EVAVO admin model truth contract passed.");
 console.log(`- protected storage and admin projections are canonicalized to ${REVIEWED_MODEL}`);
 console.log("- server-side model policy remains authoritative regardless of stale form input");
-console.log("- the remaining operator-UI model field is explicitly tracked as migration debt, not supported authority");
+console.log("- the remaining operator-UI model field is explicit migration debt with a reviewed read-only target contract");
