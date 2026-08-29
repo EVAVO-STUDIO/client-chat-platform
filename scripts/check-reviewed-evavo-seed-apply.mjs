@@ -74,6 +74,16 @@ for (const required of [
   'requireEqual(cfg.maxTurns, 8, "EVAVO_CHAT_CONFIG_MAX_TURNS_MISMATCH")',
   'requireEqual(cfg.ragMode, "simple", "EVAVO_CHAT_CONFIG_RAG_MODE_MISMATCH")',
   'Object.prototype.hasOwnProperty.call(cfg, "botKey")',
+  'typeof cfg.botKeyConfigured !== "boolean"',
+  'cfg.botKeyStatus,',
+  '"EVAVO_CHAT_CONFIG_BOT_KEY_STATE_INVALID"',
+  '"EVAVO_CHAT_CONFIG_BOT_KEY_STATUS_MISMATCH"',
+  "return cfg.botKeyConfigured;",
+  "const upsertedBotKeyConfigured = assertReviewedConfig(upserted, seed);",
+  "const storedBotKeyConfigured = assertReviewedConfig(stored, seed);",
+  '"EVAVO_CHAT_CONFIG_BOT_KEY_STATE_MISMATCH"',
+  'storedBotKeyConfigured ? "configured" : "not_configured"',
+  'console.log("- first-party approved-origin website activation does not require that bot key")',
   'seed.dailyBudget.maxRequestsPerDay',
   'console.log("- administrator token and raw bot configuration were not printed")',
 ]) {
@@ -94,6 +104,9 @@ for (const forbidden of [
   "console.error(token",
   "console.log(seed)",
   "console.log(cfg)",
+  "console.log(cfg.botKey",
+  "console.log(stored.cfg",
+  "console.log(upserted.cfg",
   "assert.deepEqual",
   "assert.strictEqual",
   "process.argv",
@@ -144,6 +157,9 @@ console.log("- production mutation requires explicit target, admin token and con
 console.log("- the target must prove the hardened security contract and active runtime header before mutation");
 console.log("- one 20-second deadline covers headers and the bounded streamed response body");
 console.log("- only reviewed upsert, redacted readback and approved cache refresh admin routes are used");
+console.log("- redacted botKeyConfigured/botKeyStatus state is verified across upsert and readback");
+console.log("- the historical bot-key state may be reported only as configured/not_configured");
+console.log("- first-party approved-origin activation remains independent of that historical server key");
 console.log("- partial knowledge refresh fails closed");
 console.log("- comparison failures use stable codes rather than dumping returned configuration objects");
 console.log("- no Wrangler, direct KV, legacy admin header or secret-in-URL authority is present");
