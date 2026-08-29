@@ -8,6 +8,8 @@ import { fileURLToPath } from "node:url";
 const workerRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const seedPath = path.join(workerRoot, "upsert-evavo.json");
 const raw = fs.readFileSync(seedPath, "utf8");
+const GLM_47_FLASH_REVIEWED_OUTPUT_NEURONS_PER_MILLION_TOKENS = 36_400;
+const EVAVO_REVIEWED_CHAT_NEURON_ENVELOPE = 2_000;
 
 assert.ok(raw.length > 0, "EVAVO seed must not be empty");
 assert.ok(!raw.startsWith("\uFEFF"), "EVAVO seed must not contain a UTF-8 BOM");
@@ -102,10 +104,25 @@ assert.ok(seed.dailyBudget.maxTokensPerDay > 0);
 assert.ok(seed.maxTokens <= 1024);
 assert.ok(seed.rateLimit.limit <= 12);
 
+const pessimisticChatNeurons =
+  (seed.dailyBudget.maxTokensPerDay / 1_000_000) *
+  GLM_47_FLASH_REVIEWED_OUTPUT_NEURONS_PER_MILLION_TOKENS;
+assert.ok(
+  pessimisticChatNeurons <= EVAVO_REVIEWED_CHAT_NEURON_ENVELOPE,
+  `EVAVO seed exceeds reviewed chat neuron envelope: ${pessimisticChatNeurons}`,
+);
+assert.equal(
+  seed.ragMode,
+  "simple",
+  "EVAVO public seed must not add embedding inference to the reviewed chat neuron envelope",
+);
+
 console.log("EVAVO reviewed seed policy passed.");
 console.log("- recovery seed uses GLM-4.7-Flash and the current bounded chat defaults");
 console.log("- public knowledge URLs point only at current EVAVO pages");
 console.log("- request/token budgets are explicit rather than unlimited");
+console.log(`- pessimistic 45k-token chat envelope is ${pessimisticChatNeurons.toFixed(0)} reviewed neurons/day`);
+console.log("- this bot-level envelope does not claim or reserve the account-wide Workers AI free allocation");
 console.log("- source/link wording is evidence-bound and cannot invent navigation targets");
 console.log("- model text cannot claim follow-up data was saved, sent or shared");
 console.log("- contact/follow-up actions remain available only through the hardened consent boundary");
