@@ -11,6 +11,10 @@ const boundaryUrl = new URL("docs/eva-product-boundary.md", root);
 const validationChainUrl = new URL("docs/canonical-validation-chain.md", root);
 const portableWidgetPolicyUrl = new URL("scripts/check-portable-widget-contract.mjs", root);
 const modelPolicyUrl = new URL("worker/scripts/check-chat-model-policy.mjs", root);
+const completionFieldPolicyUrl = new URL(
+  "worker/scripts/check-chat-completion-field-policy.mjs",
+  root,
+);
 const modelConfigTruthUrl = new URL("worker/scripts/check-chat-model-config-truth.mjs", root);
 const adminModelTruthUrl = new URL("worker/scripts/check-admin-model-truth.mjs", root);
 const quickstartPolicyUrl = new URL("worker/scripts/check-worker-quickstart.mjs", root);
@@ -45,6 +49,7 @@ if (syntax.status !== 0) {
 
 runLocalGuard(portableWidgetPolicyUrl, "portable widget contract check");
 runLocalGuard(modelPolicyUrl, "EVA chat model policy check");
+runLocalGuard(completionFieldPolicyUrl, "EVA chat completion-field policy check");
 runLocalGuard(modelConfigTruthUrl, "EVA chat stored-model truth check");
 runLocalGuard(adminModelTruthUrl, "EVA chat admin-model truth check");
 runLocalGuard(quickstartPolicyUrl, "Worker hardened quickstart check");
@@ -165,11 +170,11 @@ assert.ok(
 
 console.log("SUPER EVA compatibility presentation contract validated.");
 console.log("- canonical top-level Worker check order is documented separately from nested focused gates");
-console.log("- portable widget, model policy, config truth, admin model truth, hardened quickstart and reviewed EVAVO seed checks run through the canonical super-eva gate");
+console.log("- portable widget, model policy, bounded completion-field policy, config truth, admin model truth, hardened quickstart and reviewed EVAVO seed checks run through the canonical super-eva gate");
 console.log("- response bytes and chunks are bounded before JSON parsing");
 console.log("- presentation speech is hash-bound to the exact verified text");
 console.log("- approved audio cannot bypass the EVAVO Storage resolver");
-console.log("- GLM-4.7-Flash/BGE policy, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
+console.log("- GLM-4.7-Flash/BGE policy, bounded current completion fields, stored-model truth and read-only reviewed-model admin UI are enforced through the canonical worker check chain");
 console.log("- Windows and POSIX execute the same local policy guard paths");
 console.log("- sprite, atlas, canvas, rAF and remote-avatar rendering remain outside this repo");
 console.log("- SUPER EVA remains compatibility-only while avatar-runtime owns character presentation");
