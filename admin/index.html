@@ -28,6 +28,7 @@
     label{display:block;color:#cbd5e2;font-size:12px;font-weight:700}
     input,textarea,select{width:100%;margin-top:7px;border:1px solid var(--line);border-radius:11px;background:var(--panel2);color:var(--text);padding:11px 12px;outline:none;transition:border-color .15s,background .15s}
     input:hover,textarea:hover,select:hover{border-color:#3c4a60}
+    input[readonly]{cursor:default;color:#b7c4d3;background:#0a0f16}
     textarea{min-height:108px;resize:vertical;line-height:1.5}
     textarea.large{min-height:190px}
     input[type=checkbox]{width:18px;height:18px;margin:0;accent-color:var(--accent)}
@@ -134,8 +135,9 @@
           <label class="span-3">Cached URLs per answer
             <input id="ragMaxUrlsPerRequest" type="number" min="0" max="3" step="1" value="1" />
           </label>
-          <label class="span-6">Workers AI model
-            <input id="model" spellcheck="false" maxlength="128" placeholder="@cf/meta/llama-3.2-3b-instruct" />
+          <label class="span-6">Reviewed chat model
+            <input id="model" spellcheck="false" value="@cf/zai-org/glm-4.7-flash" readonly aria-readonly="true" />
+            <span class="help">Server-owned reviewed policy. Change the Worker model allowlist and policy together rather than selecting an arbitrary model here.</span>
           </label>
           <label class="span-3">Max output tokens
             <input id="maxTokens" type="number" min="64" max="1024" step="1" value="320" />
@@ -197,6 +199,7 @@
 (() => {
   "use strict";
   const BOT_KEY_CLEAR_SENTINEL = "__EVAVO_CLEAR_BOT_KEY__";
+  const REVIEWED_CHAT_MODEL = "@cf/zai-org/glm-4.7-flash";
   const MAX_ADMIN_RESPONSE_BYTES = 512 * 1024;
   const byId = (id) => document.getElementById(id);
   const form = byId("configForm");
@@ -322,7 +325,7 @@
       ragMode: "simple",
       ragMaxUrlsPerRequest: integer("ragMaxUrlsPerRequest", 0, 3),
       ragCacheTtlSeconds: integer("ragCacheTtlSeconds", 60, 604800),
-      model: text("model") || undefined,
+      model: REVIEWED_CHAT_MODEL,
       maxTokens: integer("maxTokens", 64, 1024),
       maxTurns: integer("maxTurns", 4, 30),
       maxCharsPerMessage: integer("maxCharsPerMessage", 200, 8000),
@@ -439,7 +442,7 @@
     byId("ragEnabled").checked = config.ragEnabled === true;
     setNumber("ragMaxUrlsPerRequest", config.ragMaxUrlsPerRequest, 1);
     setNumber("ragCacheTtlSeconds", config.ragCacheTtlSeconds, 86400);
-    setText("model", config.model);
+    setText("model", REVIEWED_CHAT_MODEL);
     setNumber("maxTokens", config.maxTokens, 320);
     setNumber("maxTurns", config.maxTurns, 8);
     setNumber("maxCharsPerMessage", config.maxCharsPerMessage, 1400);
