@@ -25,26 +25,54 @@ for (const [label, source] of [
   ["policy", policy],
   ["migration", migration],
 ]) {
-  assert.ok(source.length > 0 && !source.includes("\r"), `${label} model-truth source must be non-empty LF text`);
+  assert.ok(
+    source.length > 0 && !source.includes("\r"),
+    `${label} model-truth source must be non-empty LF text`,
+  );
 }
 
 for (const required of [
   `const REVIEWED_CHAT_MODEL = "${REVIEWED_MODEL}";`,
-  "function canonicalChatModel()",
-  "next.model = canonicalChatModel();",
-  "projected.model = canonicalChatModel();",
-  "storedModelCanonicalizedToReviewedChatModel: true",
-  "adminModelProjectionCanonicalizedToReviewedChatModel: true",
+  "function scrubRetiredConfigSecrets(config: JsonObject)",
+  "next.model = REVIEWED_CHAT_MODEL;",
+  "const scrubbed = scrubRetiredConfigSecrets(next);",
+  "const projected = scrubRetiredConfigSecrets(source);",
+  "reviewedChatModelCanonicalizedOnConfigWrite: true",
+  "reviewedChatModelCanonicalizedInAdminProjection: true",
+  "reviewedChatModel: REVIEWED_CHAT_MODEL",
 ]) {
-  assert.ok(storage.includes(required), `storage model-truth boundary missing: ${required}`);
+  assert.ok(
+    storage.includes(required),
+    `storage model-truth boundary missing: ${required}`,
+  );
 }
+
+const scrubStart = storage.indexOf("function scrubRetiredConfigSecrets(config: JsonObject)");
+const scrubEnd = storage.indexOf("async function protectedConfigValue", scrubStart);
+assert.ok(scrubStart >= 0 && scrubEnd > scrubStart, "shared config scrubber is missing");
+const scrub = storage.slice(scrubStart, scrubEnd);
+assert.ok(
+  scrub.includes("next.model = REVIEWED_CHAT_MODEL;"),
+  "shared config scrubber must canonicalize the reviewed chat model",
+);
+assert.ok(
+  storage.indexOf("const scrubbed = scrubRetiredConfigSecrets(next);") > scrubEnd,
+  "protected writes must use the shared config scrubber",
+);
+assert.ok(
+  storage.indexOf("const projected = scrubRetiredConfigSecrets(source);") > scrubEnd,
+  "administrator projections must use the shared config scrubber",
+);
 
 for (const required of [
   "Protected config writes now canonicalize the stored `model` field",
   "sanitized administrator projections also report that reviewed model",
   REVIEWED_MODEL,
 ]) {
-  assert.ok(policy.includes(required), `model policy missing stored-model truth rule: ${required}`);
+  assert.ok(
+    policy.includes(required),
+    `model policy missing stored-model truth rule: ${required}`,
+  );
 }
 
 for (const required of [
@@ -61,14 +89,20 @@ for (const required of [
   "editable model authority stays absent",
   "server model allowlist remains the execution authority",
 ]) {
-  assert.ok(migration.includes(required), `admin model UI contract missing: ${required}`);
+  assert.ok(
+    migration.includes(required),
+    `admin model UI contract missing: ${required}`,
+  );
 }
 
 for (const forbidden of [
   "migration debt, not supported model-selection authority",
   "When `admin/index.html` is edited through a patch-safe local workflow",
 ]) {
-  assert.ok(!migration.includes(forbidden), `completed admin model contract still describes pending debt: ${forbidden}`);
+  assert.ok(
+    !migration.includes(forbidden),
+    `completed admin model contract still describes pending debt: ${forbidden}`,
+  );
 }
 
 for (const required of [
@@ -92,14 +126,23 @@ for (const forbidden of [
   'setText("model", config.model)',
   'placeholder="@cf/',
 ]) {
-  assert.ok(!admin.includes(forbidden), `admin still exposes arbitrary or retired model authority: ${forbidden}`);
+  assert.ok(
+    !admin.includes(forbidden),
+    `admin still exposes arbitrary or retired model authority: ${forbidden}`,
+  );
 }
 
 const modelInput = admin.match(/<input id="model"[^>]*>/u)?.[0] ?? "";
 assert.ok(modelInput, "reviewed model input is missing");
 assert.ok(modelInput.includes("readonly"), "reviewed model input must stay read-only");
-assert.ok(modelInput.includes(REVIEWED_MODEL), "reviewed model input must display the canonical GLM model");
-assert.ok(!modelInput.includes("placeholder="), "reviewed model input must not imply a selectable model placeholder");
+assert.ok(
+  modelInput.includes(REVIEWED_MODEL),
+  "reviewed model input must display the canonical GLM model",
+);
+assert.ok(
+  !modelInput.includes("placeholder="),
+  "reviewed model input must not imply a selectable model placeholder",
+);
 
 for (const forbidden of [
   "CLOUDFLARE_API_TOKEN",
@@ -108,11 +151,14 @@ for (const forbidden of [
   "process.env",
   "fetch(",
 ]) {
-  assert.ok(!storage.includes(forbidden), `storage model-truth boundary gained provider authority: ${forbidden}`);
+  assert.ok(
+    !storage.includes(forbidden),
+    `storage model-truth boundary gained provider authority: ${forbidden}`,
+  );
 }
 
 console.log("EVAVO admin model truth contract passed.");
-console.log(`- protected storage, admin projections and operator UI are canonicalized to ${REVIEWED_MODEL}`);
+console.log(`- one shared storage scrubber canonicalizes protected writes and admin projections to ${REVIEWED_MODEL}`);
 console.log("- the model field is read-only and cannot grant arbitrary operator model-selection authority");
 console.log("- save and load paths preserve the reviewed model while Bearer auth, no-referrer and credentials-omit behavior remain intact");
 console.log("- the retired Llama placeholder and arbitrary model payload path are absent");
