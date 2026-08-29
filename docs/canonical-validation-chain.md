@@ -22,7 +22,9 @@ The top-level Worker `check` script remains:
 1. portable Shadow DOM widget contract;
 2. GLM/BGE chat-model policy;
 3. stored/admin-projected model truth;
-4. known administrator model-UI migration debt.
+4. read-only administrator reviewed-model UI truth.
+
+The administrator model UI migration is complete: the console displays the reviewed GLM-4.7-Flash model as server-owned, read-only state and cannot submit arbitrary operator-entered model identifiers.
 
 The nested arrangement is intentional. Do not add those focused checks as new top-level `npm run check` stages merely for visibility: the exact top-level chain is part of the security contract and should change only through a deliberate audited release.
 
