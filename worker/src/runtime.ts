@@ -99,7 +99,7 @@ function messageContentLength(value: unknown): number {
 }
 
 function totalMessageCharacters(messages: readonly unknown[]): number {
-  return messages.reduce(
+  return messages.reduce<number>(
     (total, message) => total + messageContentLength(message),
     0,
   );
