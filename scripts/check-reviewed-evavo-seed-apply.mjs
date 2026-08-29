@@ -8,12 +8,27 @@ import { fileURLToPath } from "node:url";
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const helperPath = path.join(root, "scripts", "apply-reviewed-evavo-seed.mjs");
 const seedPath = path.join(root, "worker", "upsert-evavo.json");
+const packagePath = path.join(root, "package.json");
 const helper = fs.readFileSync(helperPath, "utf8");
 const seedRaw = fs.readFileSync(seedPath, "utf8");
+const packageRaw = fs.readFileSync(packagePath, "utf8");
 const seed = JSON.parse(seedRaw);
+const rootPackage = JSON.parse(packageRaw);
 
 assert.ok(helper.length > 0 && !helper.includes("\r"), "reviewed seed apply helper must be LF-only");
 assert.ok(seedRaw.length > 0 && !seedRaw.includes("\r"), "reviewed EVAVO seed must be LF-only");
+assert.ok(packageRaw.length > 0 && !packageRaw.includes("\r"), "root package must remain LF-only");
+
+assert.equal(rootPackage.scripts?.check, "npm --prefix worker run check");
+assert.equal(rootPackage.scripts?.deploy, "npm --prefix worker run deploy");
+assert.equal(
+  rootPackage.scripts?.["apply:evavo-seed"],
+  "node scripts/apply-reviewed-evavo-seed.mjs",
+);
+assert.ok(
+  !String(rootPackage.scripts?.deploy || "").includes("apply:evavo-seed"),
+  "Worker deployment must never implicitly apply the EVAVO seed",
+);
 
 for (const required of [
   'const EXPECTED_CONFIRMATION = "APPLY_EVAVO_REVIEWED_SEED";',
@@ -124,6 +139,7 @@ assert.ok(
 );
 
 console.log("EVAVO reviewed seed apply helper policy passed.");
+console.log("- canonical check/deploy commands remain unchanged while apply:evavo-seed is explicit and separate");
 console.log("- production mutation requires explicit target, admin token and confirmation environment values");
 console.log("- the target must prove the hardened security contract and active runtime header before mutation");
 console.log("- one 20-second deadline covers headers and the bounded streamed response body");
