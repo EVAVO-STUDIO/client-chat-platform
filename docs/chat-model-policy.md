@@ -49,6 +49,17 @@ The policy requires the model to:
 
 The quality policy is applied only to `messages`-based chat inference. It is never inserted into embedding input.
 
+### Input-budget invariants
+
+Adding the quality policy must not increase the provider input envelope. The active runtime preserves the existing limits:
+
+- maximum system content: **30,000 characters**;
+- maximum total chat message content: **75,000 characters**.
+
+The runtime reserves room for the quality policy inside those limits. If a legacy system prompt is near the system ceiling, only that legacy system text is clipped enough to keep the policy inside 30,000 characters. If history leaves too little total capacity, the oldest non-system turns may be discarded before provider execution while the newest turn is retained. The runtime never raises the 30,000 or 75,000 character ceilings to make the policy fit, and it fails closed if the bounded request still cannot be admitted.
+
+This preserves the existing abuse/cost boundary while improving instruction quality.
+
 ## Response compatibility
 
 The legacy chat router historically consumes a top-level `response` string. Newer Workers AI chat models may return an OpenAI-style shape with `choices[0].message.content`.
