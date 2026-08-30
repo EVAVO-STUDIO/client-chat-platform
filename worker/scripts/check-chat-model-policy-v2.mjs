@@ -29,6 +29,7 @@ function forbidAll(label, source, tokens) {
 
 const runtime = read("src/runtime.ts");
 const inference = read("src/modelInferenceBoundary.ts");
+const configBoundary = read("src/configBoundary.ts");
 const policy = read("docs/chat-model-policy.md", repositoryRoot);
 const deploy = read("DEPLOY.md", repositoryRoot);
 const rootPackage = JSON.parse(read("package.json", repositoryRoot));
@@ -141,6 +142,26 @@ forbidAll("pure inference authority", inference, [
   "request.contexts",
 ]);
 
+requireAll("public model action boundary", configBoundary, [
+  "function publicChatActions(actions: ReturnType<typeof normalizeActions>)",
+  'actions.allowedActionTypes.includes("open_contact")',
+  'allowedActionTypes: contactAllowed ? ["open_contact"] : ["none"]',
+  "actions: publicChatActions(network.actions)",
+  'publicChatActionTypes: ["open_contact", "none"] as const',
+  "publicChatPersistentModelActionsAllowed: false",
+]);
+const publicActionStart = configBoundary.indexOf("function publicChatActions");
+const publicActionEnd = configBoundary.indexOf("function normalizeQualifyingQuestions", publicActionStart);
+assert.ok(publicActionStart >= 0 && publicActionEnd > publicActionStart, "public model action reducer is missing");
+const publicActions = configBoundary.slice(publicActionStart, publicActionEnd);
+forbidAll("public model action reducer", publicActions, [
+  '"create_lead"',
+  '"webhook"',
+  "fetch(",
+  "process.env",
+  "KVNamespace",
+]);
+
 const qualityStart = runtime.indexOf("const ANSWER_QUALITY_POLICY = [");
 const qualityEnd = runtime.indexOf("function firstModelArgument", qualityStart);
 assert.ok(qualityStart >= 0 && qualityEnd > qualityStart, "answer-quality policy block is missing");
@@ -236,6 +257,7 @@ console.log("- chat messages require reviewed roles and non-empty text");
 console.log("- embedding text is bounded to 2,000 characters and batches to 24 items");
 console.log("- ambiguous and malformed inference fails before model selection");
 console.log("- runtime does not retain a duplicate inference classifier");
+console.log("- public model chat actions are reduced to open_contact or none before the legacy router executes");
 console.log("- full answer-quality policy is source-pinned and remains authority-free");
 console.log("- answer quality and completion adaptation remain bounded and authority-free");
 console.log("- deploy remains separate from explicit reviewed EVAVO seed mutation");
