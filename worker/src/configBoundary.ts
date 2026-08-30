@@ -191,6 +191,16 @@ function normalizeActions(value: unknown) {
   };
 }
 
+function publicChatActions(actions: ReturnType<typeof normalizeActions>) {
+  const contactAllowed =
+    actions?.actionsEnabled === true &&
+    actions.allowedActionTypes.includes("open_contact");
+  return {
+    actionsEnabled: contactAllowed,
+    allowedActionTypes: contactAllowed ? ["open_contact"] : ["none"],
+  };
+}
+
 function normalizeQualifyingQuestions(value: unknown) {
   if (value === undefined) return [];
   if (!Array.isArray(value) || value.length > MAX_QUALIFYING_QUESTIONS) return null;
@@ -516,7 +526,7 @@ export async function buildSafeChatConfig(
     knowledgeUrls: [],
     ragEnabled: false,
     ragMode: "simple",
-    actions: network.actions,
+    actions: publicChatActions(network.actions),
   } as JsonObject;
 }
 
@@ -630,6 +640,8 @@ export const botConfigBoundaryPosture = Object.freeze({
   cachedWebsiteInstructionsTrusted: false,
   legacyWebhookConfigurationAllowed: false,
   safeActionTypes: ["open_contact", "create_lead", "none"] as const,
+  publicChatActionTypes: ["open_contact", "none"] as const,
+  publicChatPersistentModelActionsAllowed: false,
   omittedActionsPreserveLegacyWebhook: false,
   omittedKnowledgeUrlsPreserveUnsafeUrls: false,
   botKeyMinimumLengthWhenConfigured: BOT_KEY_MIN_LENGTH,
