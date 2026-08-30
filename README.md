@@ -2,7 +2,7 @@
 
 A reusable Cloudflare Worker and isolated browser widget for bounded, multi-tenant website chat.
 
-The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI model boundary, blocks the historical chat action from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, storage and response boundaries. Neither compatibility module is the Wrangler entrypoint.
+The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client_chat_active_runtime_v2`. It removes retired request aliases, applies the reviewed Workers AI model boundary, blocks historical chat actions from writing leads implicitly and exposes a separate explicit-consent lead route. It then delegates ordinary routes to `worker/src/hardened.ts`, which wraps the historical implementation in `worker/src/index.ts` behind request, authentication, configuration, network, storage and response boundaries. Neither compatibility module is the Wrangler entrypoint.
 
 ## Repository structure
 
@@ -46,18 +46,24 @@ The deployed entrypoint is `worker/src/runtime.ts` with runtime contract `client
 - Cache records contain source URL, final URL, fetch time, source byte count and a verified SHA-256 text digest.
 - Website excerpts are marked as untrusted model context. Instructions found inside fetched pages must not be followed.
 - External webhook configuration and execution are rejected by the active boundary.
-- A model action may open a contact path or propose a follow-up. It cannot write a lead during the chat request.
+- Stored legacy configuration may contain `create_lead` for migration compatibility, but public model chat reduces actions to `open_contact` or `none` before the legacy router executes.
+- Explicit visitor-approved follow-up is handled only through the separate `/api/leads` consent flow.
 - Bot deletion and global bot deletion require exact confirmation phrases.
 - Health output does not reveal whether the admin credential is configured.
 - Unexpected runtime failures return a generic JSON error.
 
 ## Explicit visitor-approved follow-up
 
-A `create_lead` model action is only a proposal. During `/api/chat`, the runtime blocks every historical `lead:*` KV read, write and delete, so compatibility code cannot create a record or update a lead index.
+Model chat cannot create a lead and cannot expose `create_lead` as an admitted successful public-chat action.
 
-The widget then:
+Two independent controls protect this boundary:
 
-1. derives the proposed email, message and optional fields only from visitor-authored messages;
+1. `worker/src/configBoundary.ts` reduces the delegated public-chat action list to `open_contact` or `none` before historical compatibility code sees the bot configuration;
+2. `worker/src/runtime.ts` blocks every historical `lead:*` KV read, write and delete during `/api/chat`.
+
+The follow-up UI then operates from visitor-authored evidence, not model storage authority. It:
+
+1. derives the email, message and optional fields only from visitor-authored messages;
 2. displays the exact email and a message excerpt;
 3. states that nothing is saved until the visitor selects **Share for follow-up**;
 4. sends exact boolean consent, the bounded visitor-message evidence and the proposed fields to `POST /api/leads`.
@@ -116,7 +122,7 @@ It reports only a file path and rule name, never the matched value. `.dev.vars.e
 
 ## Local validation
 
-Use Node.js 24 to match the read-only GitHub workflow.
+Use Node.js 24 to match the reviewed toolchain.
 
 ```powershell
 cd C:\GitRepos\client-chat-platform
@@ -153,7 +159,9 @@ A saved bot configuration must include:
 - a safe relative or public HTTPS contact URL;
 - curated knowledge and optional public HTTPS knowledge URLs;
 - bounded model, turn, message, rate and daily-budget settings;
-- only contact navigation, visitor-approved follow-up or no action.
+- only reviewed stored action values.
+
+Stored `create_lead` is migration-compatible configuration, not public model authority. `buildSafeChatConfig()` reduces the public-chat view to contact navigation or no action. The reviewed EVA seed enables `open_contact` only.
 
 After changing website source content or knowledge URLs, use **Refresh approved cache** in the admin console or call `/admin/kb/refresh` with authenticated JSON.
 
