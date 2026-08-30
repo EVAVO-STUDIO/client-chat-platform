@@ -38,8 +38,7 @@
   "actions": {
     "actionsEnabled": true,
     "allowedActionTypes": [
-      "open_contact",
-      "create_lead"
+      "open_contact"
     ]
   }
 }
