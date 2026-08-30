@@ -123,6 +123,11 @@ assert.equal(seed.ragMode, "simple");
 assert.equal(seed.ragMaxUrlsPerRequest, 1);
 assert.equal(seed.dailyBudget.maxRequestsPerDay, 45);
 assert.equal(seed.dailyBudget.maxTokensPerDay, 45000);
+assert.deepEqual(seed.actions, {
+  actionsEnabled: true,
+  allowedActionTypes: ["open_contact"],
+});
+assert.ok(!seedRaw.includes('"create_lead"'));
 
 const healthIndex = helper.indexOf('new URL("/health", `${origin}/`)');
 const upsertIndex = helper.indexOf('adminPost(origin, token, "/admin/upsert", seed)');
@@ -160,6 +165,7 @@ console.log("- only reviewed upsert, redacted readback and approved cache refres
 console.log("- redacted botKeyConfigured/botKeyStatus state is verified across upsert and readback");
 console.log("- the historical bot-key state may be reported only as configured/not_configured");
 console.log("- first-party approved-origin activation remains independent of that historical server key");
+console.log("- reviewed EVA model actions are open_contact only; create_lead remains outside model chat and requires the explicit visitor-controlled lead route");
 console.log("- partial knowledge refresh fails closed");
 console.log("- comparison failures use stable codes rather than dumping returned configuration objects");
 console.log("- no Wrangler, direct KV, legacy admin header or secret-in-URL authority is present");
