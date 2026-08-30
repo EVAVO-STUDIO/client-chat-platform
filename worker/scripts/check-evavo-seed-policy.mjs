@@ -71,7 +71,7 @@ assert.deepEqual(seed.dailyBudget, {
 });
 assert.deepEqual(seed.actions, {
   actionsEnabled: true,
-  allowedActionTypes: ["open_contact", "create_lead"],
+  allowedActionTypes: ["open_contact"],
 });
 
 for (const required of [
@@ -95,6 +95,7 @@ for (const forbidden of [
   "@cf/meta/llama-3.2-3b-instruct",
   "https://evavo.com.au/pricing",
   "webhook",
+  '"create_lead"',
   "temperature",
   "systemPrompt",
   "we saved your details",
@@ -144,5 +145,5 @@ console.log("- the dated pricing snapshot and account-wide caveat are bound into
 console.log("- this bot-level envelope does not claim or reserve the account-wide Workers AI free allocation");
 console.log("- source/link wording is evidence-bound and cannot invent navigation targets");
 console.log("- model text cannot claim follow-up data was saved, sent or shared");
-console.log("- contact/follow-up actions remain available only through the hardened consent boundary");
-console.log("- retired Llama, pricing-page, webhook and legacy prompt fields remain absent");
+console.log("- model actions are presentation-only open_contact; lead persistence remains visitor controlled through the explicit hardened lead route");
+console.log("- retired Llama, pricing-page, create_lead, webhook and legacy prompt fields remain absent");
