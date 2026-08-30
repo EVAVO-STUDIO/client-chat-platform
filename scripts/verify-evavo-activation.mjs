@@ -149,6 +149,14 @@ function assertNoSensitiveProjection(value, path = "$") {
   }
 }
 
+function assertNoImplicitLeadAction(value) {
+  const action = record(value?.action);
+  if (!action) return;
+  if (action.type === "create_lead" || action.type === "webhook") {
+    fail("EVAVO_CHAT_IMPLICIT_LEAD_ACTION_EXPOSED");
+  }
+}
+
 function chatBody() {
   return JSON.stringify({
     botId: "evavo",
@@ -210,6 +218,7 @@ async function main() {
     }
   }
   assertNoSensitiveProjection(browserChat);
+  assertNoImplicitLeadAction(browserChat);
   if (JSON.stringify(browserChat).includes("@cf/")) {
     fail("EVAVO_CHAT_MODEL_IDENTIFIER_EXPOSED");
   }
@@ -241,6 +250,7 @@ async function main() {
   console.log("- first-party origin succeeds without a bot key");
   console.log("- no-origin server request remains bot-key protected");
   console.log(`- bounded non-empty reply: ${reply.length} characters`);
+  console.log("- public model response cannot expose create_lead or webhook actions");
   console.log("- no model identifier, bot key, raw provider output or stack/cause leaked");
   console.log("- no administrator token, KV mutation, seed apply or deployment was performed");
 }
