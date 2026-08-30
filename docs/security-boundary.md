@@ -67,8 +67,10 @@ KV namespace IDs in Wrangler are binding identifiers, not bearer credentials. Re
 
 - removes the retired administrator header globally;
 - validates the actual model identifier immediately before Workers AI receives it;
-- replaces a missing, malformed or known-retired model with `@cf/meta/llama-3.2-3b-instruct`;
-- bounds Workers AI completion with a 20-second timeout;
+- replaces a missing, malformed, retired or unapproved chat model with the reviewed `@cf/zai-org/glm-4.7-flash` fallback;
+- keeps embedding inference on its separate reviewed model allowlist;
+- bounds Workers AI execution with a 20-second timeout;
+- translates the admitted legacy completion limit to `max_completion_tokens` without raising the 1,024-token ceiling;
 - wraps `BOT_CONFIG` during `/api/chat` so historical `lead:*` reads, writes and deletes cannot occur;
 - routes `/api/leads` to the explicit-consent service with the real bindings;
 - stamps every response with `X-EVAVO-Chat-Runtime: client_chat_active_runtime_v2`.
@@ -154,10 +156,11 @@ It:
 - normalises lead mode to `soft`, `balanced` or `direct`;
 - forces simple cached retrieval;
 - rejects webhook URL, authentication and secret fields;
-- permits only `open_contact`, `create_lead` and `none` model actions;
+- accepts `open_contact`, historical `create_lead` and `none` only while validating stored/admin configuration;
+- reduces the per-request public-chat action view to `open_contact` or `none` before compatibility code runs;
 - clears omitted unsafe legacy action and URL state rather than preserving it.
 
-`create_lead` means “offer the visitor an explicit follow-up choice.” It is not storage authority.
+Historical `create_lead` remains readable only so existing bot records can be inspected and migrated safely. It is not model-chat authority and is never forwarded into the public chat prompt/configuration view.
 
 ## Knowledge retrieval boundary
 
@@ -218,29 +221,30 @@ Before compatibility code invokes the model, the hardened router has:
 - loaded safe configuration;
 - replaced live retrieval with verified cached excerpts;
 - removed bot-key enforcement from delegated configuration;
-- removed unsafe external actions.
+- reduced model-visible actions to non-persistent `open_contact` or `none`.
 
-The final runtime validates the actual model argument and enforces the timeout. The returned response is re-read through a bounded stream.
+The final runtime validates the actual model argument, applies the bounded answer-quality policy and completion adapter, and enforces the timeout. The returned response is re-read through a bounded stream.
 
 Public responses:
 
 - must be JSON;
 - cannot contain `raw`, `stack` or `cause` fields;
 - cannot expose detailed provider errors on failure;
+- cannot expose `create_lead` or `webhook` as an admitted public model action under the reviewed boundary;
 - receive no-store and defensive headers.
 
 The widget renders model text with `textContent`, never HTML.
 
 ## Explicit visitor-consent lead boundary
 
-A model action cannot store a lead during `/api/chat`. The runtime replaces the chat request’s `BOT_CONFIG` binding with a wrapper that returns no lead records or indexes and ignores every `lead:*` write and delete.
+A model action cannot store or represent successful lead creation during `/api/chat`.
 
-The widget treats `create_lead` as a proposal. It derives the email, message and optional name, company or phone only from visitor-authored messages. It then displays:
+Two independent controls enforce this:
 
-- the exact email;
-- a bounded message excerpt;
-- the statement that nothing is saved until **Share for follow-up** is selected;
-- the 90-day retention window.
+1. `worker/src/configBoundary.ts` removes persistent action types from the per-request model configuration before the legacy router runs;
+2. `worker/src/runtime.ts` replaces the chat request’s `BOT_CONFIG` binding with a wrapper that returns no lead records or indexes and ignores every historical `lead:*` write and delete.
+
+The visitor follow-up UI derives the email, message and optional name, company or phone only from visitor-authored messages. Before persistence it displays the exact follow-up information, makes clear that nothing is saved until the visitor chooses **Share for follow-up**, and states the 90-day retention window.
 
 Only a separate:
 
@@ -318,8 +322,8 @@ Order is mandatory:
 1. tracked-source secret safety;
 2. administrator configuration and runtime-storage behavior safety through the security prehook;
 3. deterministic security architecture contract;
-4. Super EVA widget, bounded-streaming and presentation-contract validation;
+4. Super EVA widget, model-policy, bounded-streaming and presentation-contract validation;
 5. TypeScript validation;
 6. Wrangler no-deploy dry-run bundle.
 
-`npm run check:bundle` writes only to the ignored `.wrangler/dry-run` directory. The npm `predeploy` hook runs the complete chain before deployment. The read-only GitHub Actions workflow runs the same checks without requesting Worker secrets and without publishing the Worker.
+`npm run check:bundle` writes only to the ignored `.wrangler/dry-run` directory. The npm `predeploy` hook runs the complete chain before deployment. The read-only GitHub Actions workflow can run the same checks without Worker secrets and without publishing the Worker, but the reviewed local activation flow does not depend on paid Actions usage.
