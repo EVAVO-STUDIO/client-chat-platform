@@ -65,6 +65,14 @@ The policy requires the model to:
 
 The quality policy is applied only to `messages`-based chat inference. It is never inserted into embedding input.
 
+### Public chat action boundary
+
+Public model chat is presentation-only. Stored legacy/admin configuration may still contain `create_lead` so old configuration can be inspected and migrated safely, but `worker/src/configBoundary.ts` reduces the per-request chat view to only `open_contact` or `none` before the legacy router executes.
+
+A model response therefore cannot create a lead, cannot expose `create_lead` as a successful public-chat action, and cannot invoke a webhook. Lead persistence belongs only to the explicit `/api/leads` route after the visitor reviews the exact follow-up information and gives consent. This action reduction is independent of the existing runtime KV write block, so persistent model actions are denied at both configuration and storage boundaries.
+
+The reviewed EVAVO seed follows the same rule and enables only `open_contact`. Deployment does not silently apply that seed: the explicit reviewed seed activation step must still run, and the read-only activation verifier fails if a deployed EVA response exposes `create_lead` or `webhook`.
+
 ### Input-budget invariants
 
 Adding the quality policy must not increase the provider input envelope. The active runtime preserves the existing limits:
