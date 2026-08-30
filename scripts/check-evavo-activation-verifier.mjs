@@ -39,8 +39,13 @@ for (const token of [
   'response.headers.get("x-evavo-chat-runtime") !== EXPECTED_RUNTIME',
   'JSON.stringify(browserChat).includes("@cf/")',
   'SENSITIVE_KEYS.has(key)',
+  "function assertNoImplicitLeadAction(value)",
+  'action.type === "create_lead" || action.type === "webhook"',
+  'fail("EVAVO_CHAT_IMPLICIT_LEAD_ACTION_EXPOSED")',
+  "assertNoImplicitLeadAction(browserChat)",
   'console.log("- first-party origin succeeds without a bot key")',
   'console.log("- no-origin server request remains bot-key protected")',
+  'console.log("- public model response cannot expose create_lead or webhook actions")',
 ]) {
   assert.ok(verifier.includes(token), `activation verifier missing: ${token}`);
 }
@@ -103,5 +108,6 @@ console.log("EVAVO read-only activation verifier contract passed.");
 console.log("- approved-origin chat is verified without a bot key");
 console.log("- no-origin server chat remains bot-key protected");
 console.log("- runtime/security contracts, bounded responses and secret redaction are verified");
+console.log("- public browser responses must not expose model-generated create_lead or webhook actions");
 console.log("- Windows activation orchestration safety is validated without executing deployment");
 console.log("- no admin token, KV mutation, seed apply or deploy authority is present in the verifier");
