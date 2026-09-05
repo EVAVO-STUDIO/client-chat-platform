@@ -1,0 +1,74 @@
+{
+  "schemaVersion": "evavo.repo-manifest.v1",
+  "identity": {
+    "key": "client-chat-platform",
+    "name": "EVAVO Client Chat Platform",
+    "owner": "EVAVO-STUDIO",
+    "category": "multi-tenant-client-chat-foundation",
+    "status": "active"
+  },
+  "runtime": {
+    "language": "typescript",
+    "shape": "cloudflare-worker-plus-browser-widget",
+    "localFirst": false,
+    "requiresPaidHostedControlPlane": false
+  },
+  "summary": "Canonical reusable multi-tenant website chat Worker, isolated browser widget and reviewed bot-configuration boundary. It is distinct from EVAVO-specific EVA Public Chat.",
+  "defaultBranch": "main",
+  "providerPosture": {
+    "repositoryVisibility": "public",
+    "trackedSourceMustBePublicSafe": true
+  },
+  "capabilities": [
+    "multi-tenant-bot-configuration",
+    "bounded-public-chat",
+    "origin-and-bot-key-access-boundaries",
+    "authenticated-knowledge-cache-refresh",
+    "explicit-visitor-approved-follow-up",
+    "portable-shadow-dom-widget",
+    "source-secret-safety-gates",
+    "workers-ai-model-policy"
+  ],
+  "authority": {
+    "readOnly": [
+      "serve-bounded-public-chat",
+      "read-public-safe-bot-configuration",
+      "inspect-health-and-model-policy"
+    ],
+    "reversible": [
+      "refresh-approved-public-knowledge-cache",
+      "store-expiring-explicit-consent-lead"
+    ],
+    "consequential": [
+      "authenticated-bot-configuration-mutation",
+      "reviewed-worker-deployment"
+    ],
+    "neverImplicit": [
+      "model-created-lead-without-explicit-consent",
+      "browser-held-bot-or-admin-secret",
+      "public-live-knowledge-fetch",
+      "external-webhook-execution",
+      "treat-kv-rate-limits-as-transactional-compliance-control",
+      "replace-eva-public-chat"
+    ]
+  },
+  "integrations": [
+    "evavo-site-foundation",
+    "support-agent-system",
+    "chatbot-backend",
+    "super-admin-ai-agent"
+  ],
+  "responsibilityBoundary": {
+    "owns": [
+      "generic-multi-tenant-client-chat-runtime",
+      "portable-client-chat-widget",
+      "reviewed-bot-configuration-and-public-knowledge-cache"
+    ],
+    "doesNotOwn": [
+      "evavo-specific-eva-public-experience",
+      "private-super-eva-owner-experience",
+      "support-ticket-and-complaint-workflows"
+    ]
+  },
+  "reviewedAt": "2026-09-05"
+}
