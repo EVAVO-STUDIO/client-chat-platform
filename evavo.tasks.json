@@ -10,7 +10,7 @@
       "arguments": [],
       "network": "disabled",
       "timeoutSeconds": 3600,
-      "description": "Run the canonical Client Chat Worker validation chain: source/config secret boundaries, security and SUPER EVA umbrella contracts, TypeScript and the Wrangler no-deploy bundle dry run.",
+      "description": "Run the canonical Client Chat Worker validation chain: source/config secret boundaries, security, portable-widget and SUPER EVA compatibility contracts, TypeScript and the Wrangler no-deploy bundle dry run.",
       "expectedOutputs": []
     },
     "typecheck": {
