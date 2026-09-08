@@ -14,7 +14,7 @@
     "check:security": "node scripts/check-security-contract.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "check:bundle": "wrangler deploy --dry-run --outdir .wrangler/dry-run -c wrangler.jsonc",
-    "check": "npm run check:source-secrets && npm run check:security && npm run check:super-eva && npm run typecheck && npm run check:bundle",
+    "check": "npm run check:source-secrets && npm run check:security && npm run check:portable-widget && npm run check:super-eva && npm run typecheck && npm run check:bundle",
     "predeploy": "npm run check",
     "deploy": "wrangler deploy -c wrangler.jsonc",
     "tail": "wrangler tail -c wrangler.jsonc",
