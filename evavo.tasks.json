@@ -1,0 +1,27 @@
+{
+  "schemaVersion": 1,
+  "kind": "evavo-repository-task-manifest",
+  "repository": "EVAVO-STUDIO/client-chat-platform",
+  "tasks": {
+    "check": {
+      "runtime": "npm-script",
+      "entry": "check",
+      "cwd": ".",
+      "arguments": [],
+      "network": "disabled",
+      "timeoutSeconds": 3600,
+      "description": "Run the canonical Client Chat Worker validation chain: source/config secret boundaries, security and SUPER EVA umbrella contracts, TypeScript and the Wrangler no-deploy bundle dry run.",
+      "expectedOutputs": []
+    },
+    "typecheck": {
+      "runtime": "npm-script",
+      "entry": "typecheck",
+      "cwd": ".",
+      "arguments": [],
+      "network": "disabled",
+      "timeoutSeconds": 1200,
+      "description": "Run the Client Chat Worker TypeScript validation without deployment.",
+      "expectedOutputs": []
+    }
+  }
+}
