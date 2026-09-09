@@ -1,0 +1,68 @@
+{
+  "contractVersion": "evavo_repository_capabilities_v1",
+  "repository": "EVAVO-STUDIO/client-chat-platform",
+  "authority": "client-chat-platform",
+  "summary": "EVAVO's reusable bounded multi-tenant website-chat Worker, isolated widget, reviewed Workers AI model boundary, cached public-knowledge and explicit visitor-consent lead-capture authority. Model chat cannot create leads or execute webhooks; administrator, browser-origin, bot-key, knowledge-refresh and follow-up consent boundaries remain separate and fail closed.",
+  "capabilities": [
+    {
+      "id": "client-chat.respond",
+      "title": "Generate bounded website-chat responses",
+      "description": "Accept origin- or bot-key-authorised chat requests, apply the reviewed Workers AI chat-model and response-shape policy, combine curated/cached knowledge as untrusted evidence context and return bounded public-safe responses without allowing the model to create a lead or perform external actions.",
+      "interfaces": ["api", "web-app", "widget"],
+      "effects": ["read", "compute", "network", "write", "execute"],
+      "entrypoints": ["worker/src/runtime.ts", "/api/chat", "widget/embed.js"],
+      "tags": ["chat", "workers-ai", "widget", "multi-tenant", "knowledge"],
+      "requires": ["Valid bot configuration", "Exact approved browser Origin or valid non-browser bot key", "Reviewed chat-model policy"]
+    },
+    {
+      "id": "client-chat.knowledge.refresh",
+      "title": "Refresh approved public knowledge cache",
+      "description": "Fetch configured public HTTPS knowledge sources only through the authenticated administrator refresh route with manual redirect validation, public-network/SSRF boundaries, full-operation timeout, streamed byte limits, binary rejection and source/final URL plus SHA-256 provenance.",
+      "interfaces": ["api", "admin"],
+      "effects": ["read", "compute", "network", "write", "execute"],
+      "entrypoints": ["/admin/kb/refresh", "admin console"],
+      "tags": ["knowledge", "refresh", "ssrf", "cache", "provenance"],
+      "requires": ["Administrator bearer authentication", "Approved public HTTPS knowledge URL"]
+    },
+    {
+      "id": "client-chat.lead.capture-consented",
+      "title": "Capture explicit visitor-approved follow-up",
+      "description": "Store a bounded follow-up record only after the visitor sees the proposed contact/message evidence and sends exact boolean consent. Stored fields must be present in visitor-authored evidence; model chat cannot invoke or imply this authority.",
+      "interfaces": ["api", "widget"],
+      "effects": ["read", "compute", "write", "execute"],
+      "entrypoints": ["POST /api/leads", "Share for follow-up widget flow"],
+      "tags": ["lead", "consent", "follow-up", "privacy"],
+      "requires": ["Exact approved browser Origin", "consent: true", "Visitor-authored evidence", "Valid bot configuration"]
+    },
+    {
+      "id": "client-chat.admin.configure",
+      "title": "Administer reviewed bot configuration",
+      "description": "Manage bounded bot configuration and cache state through bearer-authenticated administrator routes while never returning bot-key material and while rejecting retired webhook destinations/credentials and unsafe knowledge configuration.",
+      "interfaces": ["api", "admin"],
+      "effects": ["read", "compute", "write", "execute"],
+      "entrypoints": ["admin console", "administrator routes"],
+      "tags": ["admin", "configuration", "secrets", "origins", "models"],
+      "requires": ["Exact server-side administrator bearer token", "Reviewed config schema"]
+    },
+    {
+      "id": "client-chat.validation.execute",
+      "title": "Run complete chat-platform source and bundle validation",
+      "description": "Run tracked-source secret safety, config-secret boundaries, runtime security, portable widget, Super EVA compatibility, TypeScript and Wrangler no-deploy bundle checks without publishing the Worker.",
+      "interfaces": ["cli", "testing", "automation"],
+      "effects": ["read", "compute", "write", "execute"],
+      "entrypoints": ["npm run check", "npm run check:source-secrets", "npm run check:security", "npm run check:bundle"],
+      "tags": ["validation", "security", "wrangler", "bundle", "secrets"],
+      "requires": ["Node.js 24", "Worker dependencies installed"]
+    }
+  ],
+  "truthBoundary": {
+    "modelChatCanCreateLead": false,
+    "webhookExecutionEnabled": false,
+    "publicChatFetchesKnowledgeUrlsLive": false,
+    "botKeyMayBeEmbeddedInPublicWidget": false,
+    "workersKvCountersTransactional": false,
+    "workersKvLeadIndexTransactional": false,
+    "hashingClientAddressMakesAnonymousIdentity": false,
+    "noDeployBundleCheckDeploysWorker": false
+  }
+}
